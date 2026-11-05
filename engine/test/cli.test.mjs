@@ -100,3 +100,13 @@ test("a run whose engine process died shows as interrupted", async () => {
   const { stdout } = await cli(dir, "list");
   assert.match(stdout, /gone-1\s+interrupted/);
 });
+
+test("the CLI runs when started through a symlink, as npm link installs it", async () => {
+  const dir = await home();
+  await fakeRun(dir, "linked-1", { status: "done", step: 6 });
+  const { symlink } = await import("node:fs/promises");
+  const link = join(dir, "whetstone");
+  await symlink(CLI, link);
+  const { stdout } = await run("node", [link, "list"], { env: { ...process.env, WHETSTONE_HOME: dir } });
+  assert.match(stdout, /linked-1/);
+});
