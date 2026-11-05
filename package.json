@@ -6,5 +6,5 @@
   "type": "module",
   "bin": { "whetstone": "engine/cli.mjs" },
   "engines": { "node": ">=22" },
-  "scripts": { "test": "node --test --test-timeout=20000 'engine/test/*.test.mjs'" }
+  "scripts": { "test": "node --test --test-timeout=20000 'engine/test/*.test.mjs' 'test/**/*.test.mjs'" }
 }
