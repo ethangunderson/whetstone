@@ -227,7 +227,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     // resume, structured, helper, file, stage, who, record }
     async function call(key, o) {
       const done = st.results[key];
-      if (done && done.ok) return remember(done);
+      if (done && done.ok) return remember({ ...done, text: done.file ? await readFile(done.file, "utf8") : done.text });
       await gate();
       const system = await rolePrompt(o.role);
       const readOnly = o.role === "reviewer" || o.role === "triage";
@@ -263,8 +263,10 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         await mkdir(dirname(result.file), { recursive: true });
         await writeFile(result.file, res.ok ? res.text : "FAILED: " + (res.error || "no output") + "\n\n" + res.text);
       }
+      // Replies with a report file stay out of state.json, which the pane reads.
+      const kept = result.file ? { ...result, text: undefined } : result;
       await store.update((s) => {
-        s.results[key] = result;
+        s.results[key] = kept;
         delete s.running[key];
         if (o.role === "writer") s.sessions[o.lane] = sid;
         if (tracked) Object.assign(s.lanes[o.lane], { status: res.ok ? "done" : "failed", since: null });

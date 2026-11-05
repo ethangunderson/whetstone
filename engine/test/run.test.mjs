@@ -293,6 +293,15 @@ test("stage outputs are saved as numbered files in the report folder", async () 
   assert.equal(await readFile(file, "utf8"), "ok draft-claude");
 });
 
+test("state.json stays small: stage replies live in the report files", async () => {
+  const big = "x".repeat(200_000);
+  const { store } = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }], override: { "draft-claude": () => ({ text: big }), "draft-codex": () => ({ text: big }) } });
+  const onDisk = await readFile(join(store.dir, "state.json"), "utf8");
+  assert.ok(onDisk.length < 100_000, "state.json is " + onDisk.length + " bytes");
+  assert.equal(JSON.parse(onDisk).results["draft-claude"].text, undefined);
+  assert.equal((await readFile(store.state.results["draft-claude"].file, "utf8")).length, big.length);
+});
+
 test("an invalid structured reply is re-asked once in the same session", async () => {
   let n = 0;
   const { calls, result } = await simulate({
@@ -329,6 +338,7 @@ test("rerunning after a crash reuses finished stages and continues the same sess
   const result = await first.run();
   const again = first.fake.calls.slice(before).map((c) => c.key);
   assert.equal(again[0], "integrate");
+  assert.match(first.fake.calls.slice(before)[0].prompt, /INTEGRATOR: claude/, "the peer's converge text is read back for the prompt");
   assert.ok(!again.some((k) => /^(triage|probe-|draft-|critique-|converge-)/.test(k)));
   assert.equal(first.fake.calls.slice(before)[0].session, draftSession);
   assert.equal(first.ws.added.filter((w) => w.path.endsWith("/final")).length, 1, "final worktree created once");
