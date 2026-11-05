@@ -55,7 +55,8 @@ export function steps(state) {
   });
 }
 
-function roleLabel(lane) {
+function roleLabel(lane, id, state) {
+  if (state.status === "done" && state.integrator) return id === state.integrator ? "Integrator" : "Writer";
   if (lane.role === "reviewer") return "Reviewer";
   if (lane.role === "writer") return /^(integrate|r\d+-fix)$/.test(lane.stage || "") ? "Integrator" : "Writer";
   return "Idle";
@@ -72,7 +73,7 @@ export function laneCards(state, now) {
     return {
       id,
       name: lane.name,
-      role: roleLabel(lane),
+      role: roleLabel(lane, id, state),
       status,
       detail: working && lane.since ? elapsed(now - Date.parse(lane.since)) : "",
       model: shortModel(lane.model),

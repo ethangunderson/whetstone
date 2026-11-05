@@ -225,7 +225,7 @@ test("history reads as plain sentences through the whole run", async () => {
   assert.ok(events.some((e) => /review round 1\/2/i.test(e) && /1 finding/.test(e) && /P0\/P1/.test(e)));
   assert.ok(events.some((e) => /applying fixes/i.test(e)));
   assert.ok(events.some((e) => /round 2.*clean/i.test(e)));
-  assert.match(events.at(-1), /^Done/);
+  assert.match(events.at(-1), /^Done · whetstone\/csv-export · total \d+s$/, "paths stay in the report, not the history");
 });
 
 // ---- New in the engine -----------------------------------------------------

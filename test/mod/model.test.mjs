@@ -71,6 +71,8 @@ test("lane cards show role, a plain status, model and how long it has been worki
   const blocked = laneCards(state({ lanes: { ...state().lanes, claude: { ...state().lanes.claude, status: "blocked" } } }), NOW)[0];
   assert.equal(blocked.status, "needs you");
   assert.equal(laneCards(state({ status: "done" }), NOW)[1].status, "done");
+  const finished = laneCards(state({ status: "done", integrator: "codex", lanes: { claude: { ...state().lanes.claude, role: "reviewer", status: "done" }, codex: { ...state().lanes.codex, role: "reviewer" } } }), NOW);
+  assert.deepEqual(finished.map((l) => l.role), ["Writer", "Integrator"], "a finished run shows who integrated, not the last stage");
   assert.equal(laneCards(state({ lanes: { ...state().lanes, codex: { ...state().lanes.codex, status: "failed" } } }), NOW)[1].status, "failed");
 });
 

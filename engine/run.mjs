@@ -804,7 +804,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       s.status = "done";
       s.next = null;
     });
-    await store.event("Done · " + finalBranch + " (" + finalPath + ") · report " + reportPath + " · total " + dur(metrics.totalMs));
+    await store.event("Done · " + finalBranch + " · total " + dur(metrics.totalMs));
 
     return {
       finalBranch,
