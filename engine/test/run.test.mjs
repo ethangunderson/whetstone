@@ -264,6 +264,22 @@ test("each call runs on its lane's harness with the role's system prompt", async
   assert.match(calls.find((c) => c.key === "report").system, /final report/i);
 });
 
+test("harness calls get the run's session folder and a raw log per stage", async () => {
+  const { calls, store } = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }] });
+  const draft = calls.find((c) => c.key === "draft-claude");
+  assert.equal(draft.sessionDir, join(store.dir, "sessions"));
+  assert.equal(draft.logFile, join(store.dir, "logs", "draft-claude.jsonl"));
+  assert.ok(calls.every((c) => c.sessionDir === draft.sessionDir && c.logFile.startsWith(join(store.dir, "logs"))));
+});
+
+test("resumed stages that move directories say where to work", async () => {
+  const { calls, store } = await simulate({ ...agree, reviews: [{ claude: p2, codex: clean }] });
+  const finalPath = store.state.finalPath;
+  for (const key of ["integrate", "r1-fix"]) {
+    assert.match(calls.find((c) => c.key === key).prompt, new RegExp("cd " + finalPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), key);
+  }
+});
+
 test("stage outputs are saved as numbered files in the report folder", async () => {
   const { state } = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }] });
   const file = state.results["draft-claude"].file;

@@ -202,7 +202,8 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       try {
         const r = await harness.run({
           key: req.key, lane: req.lane, role: req.role, session: req.session, resume: req.resume,
-          cwd: req.cwd, system: req.system, model, effort, readOnly: req.readOnly, prompt: req.prompt
+          cwd: req.cwd, system: req.system, model, effort, readOnly: req.readOnly, prompt: req.prompt,
+          sessionDir: join(store.dir, "sessions"), logFile: join(store.dir, "logs", req.key + ".jsonl")
         });
         return { ok: Boolean(r && r.ok), text: String((r && r.text) || ""), sessionId: (r && r.sessionId) || req.session, error: (r && r.error) || null };
       } catch (error) {
@@ -535,6 +536,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         ">>>",
         "",
         "The final branch " + finalBranch + " is checked out at " + finalPath + ", created from your branch " + lane[integrator].branch + ".",
+        "Your shell may start in your lane worktree; cd " + finalPath + " before running commands.",
         "Work only in " + finalPath + ". Bring in the agreed parts of " + lane[peer].branch + " (read its diff; cherry-pick or re-implement as appropriate).",
         isolationHint(FINAL_PARTITION),
         "",
@@ -647,6 +649,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         lane: integrator, role: "writer", spec: models[integrator], cwd: finalPath, resume: true, stage: "fix r" + round, who: integrator,
         prompt: [
           "Apply fixes for round " + round + " in " + finalPath + " on " + finalBranch + ".",
+          "Your shell may start in another directory; cd " + finalPath + " before running commands.",
           "",
           "The " + NAME(peer) + " lane's position on each finding:",
           "<<<",
