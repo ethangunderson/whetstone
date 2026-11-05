@@ -25,6 +25,8 @@ Today this is a pi-subagents workflow (`~/.pi/agent/workflows/dual-pr.js`,
   (a different mod; borrow its look, not its names or content).
   Idiom: `~/.config/herdr-app/mods/linear/look.js`. Use `theme()` colors only,
   color only for state, and surfaces stay neutral.
+- **Step mode**: runs advance on their own by default; an optional "wait for
+  me between steps" toggle shows a "Start <next step>" button instead.
 - **New repo** shaped like a shareable Herdr mod: `mods/whetstone/` with
   `RECIPE.md` and `preview.png`, plus `engine/`.
 
@@ -164,8 +166,6 @@ No npm dependencies in the engine (Node built-ins only), so it runs anywhere
 
 ## Open questions
 
-- Step mode: should the run advance on its own (default) with an optional
-  "wait for me between steps" toggle (a "Start <next step>" button)?
 - Mod install for development: does Herdr follow a symlink
   `~/.config/herdr-app/mods/whetstone → this repo`? If not, copy on install.
 - `--mode json` vs `--mode rpc` for lanes: rpc gives a true mid-turn abort;
