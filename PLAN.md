@@ -1,9 +1,9 @@
-# herdr-dual-pr — plan
+# whetstone — plan
 
 Claude and Codex each build the same task, debate a middle road, one
 integrates, a Claude+Codex reviewer pair attacks it, and the writers respond.
 Today this is a pi-subagents workflow (`~/.pi/agent/workflows/dual-pr.js`,
-`/dual-pr` prompt). This repo turns it into:
+`/dual-pr` prompt). Whetstone replaces it with:
 
 - an **engine** that owns the run and talks only to `pi`, and
 - a **native Herdr pane** that shows the run and controls it.
@@ -25,7 +25,7 @@ Today this is a pi-subagents workflow (`~/.pi/agent/workflows/dual-pr.js`,
   (a different mod; borrow its look, not its names or content).
   Idiom: `~/.config/herdr-app/mods/linear/look.js`. Use `theme()` colors only,
   color only for state, and surfaces stay neutral.
-- **New repo** shaped like a shareable Herdr mod: `mods/dual-pr/` with
+- **New repo** shaped like a shareable Herdr mod: `mods/whetstone/` with
   `RECIPE.md` and `preview.png`, plus `engine/`.
 
 ## How a lane maps to pi
@@ -33,11 +33,11 @@ Today this is a pi-subagents workflow (`~/.pi/agent/workflows/dual-pr.js`,
 | Need | pi |
 |---|---|
 | Model + thinking | `--model <provider/id>:<level>` (same strings as `TIERS` today) |
-| Context across stages | `--session-id dualpr-<run>-<lane>`, reused stage to stage |
+| Context across stages | `--session-id whetstone-<run>-<lane>`, reused stage to stage |
 | Role | `--system-prompt` from `agents/dual-*.md` (moved into this repo) |
 | Read-only reviewers | `--tools read,grep,find,ls,bash` |
 | Parseable output | `-p --mode json` (or `--mode rpc` for a lane that can be aborted mid-turn) |
-| Visible in Herdr | started with `hc run --bg`, labeled `dual-pr=<run> lane=<who>` |
+| Visible in Herdr | started with `hc run --bg`, labeled `whetstone=<run> lane=<who>` |
 
 Structured output: pi has no `--json-schema`. Keep the current approach
 (last ```json block, `BASE:` / `INTEGRATOR:` / `SIGNOFF:` tags), validate in
@@ -51,15 +51,16 @@ the answer is sent back into the same session.
 ## Files on disk
 
 ```
-~/.dual-pr/runs/<run-id>/
+~/.whetstone/runs/<run-id>/
   state.json     engine-owned; written atomically after every change
   control.json   mod-owned requests: { pause: "after-step" | "now" | null, stop, answers: {...} }
   events.jsonl   history lines for the pane
   lanes/<key>.jsonl  raw pi --mode json output per stage
 ```
 
-The report folder (`.dual-pr/<repo>-<slug>/report/NN-*.md`) and worktrees stay
-where they are today.
+Worktrees and the report keep today's shape under a new name:
+`<repo parent>/.whetstone/<repo>-<slug>/{claude,codex,final,report}`, branches
+`whetstone/<slug>`, `whetstone/<slug>-claude`, `whetstone/<slug>-codex`.
 
 `state.json` sketch:
 
@@ -94,15 +95,15 @@ where they are today.
   worktree changes are still on disk.
 - **Stop**: abort lanes and end the run as `stopped`. Worktrees and branches
   are kept.
-- **Resume after a crash**: `dual-pr resume <run-id>` reads `state.json` and
+- **Resume after a crash**: `whetstone resume <run-id>` reads `state.json` and
   restarts from the first unfinished stage.
 
 ## The pane
 
 Styled like the reference (header with actions, stepper, side-by-side agent
-cards, stat tiles, history), with dual-pr's own content. Top to bottom:
+cards, stat tiles, history), with Whetstone's own content. Top to bottom:
 
-1. **Header**: icon, "Dual PR", slug chip (mono), task title (truncated),
+1. **Header**: icon, "Whetstone", slug chip (mono), task title (truncated),
    `Pause` / `Resume`, `Stop`.
 2. **Stepper**: Triage – Draft – Debate – Integrate – Review – Report. Done
    steps show a check, the current one is filled, and later ones are outlined.
@@ -128,14 +129,14 @@ Several runs: a small picker in the header when more than one run is active.
 
 ```
 engine/
-  cli.mjs          dual-pr run|resume|status|pause|stop
+  cli.mjs          whetstone run|resume|status|pause|stop
   run.mjs          stage sequence ported from dual-pr.js
   lane.mjs         pi invocation (the only pi-aware module)
   parse.mjs        lastJson, lastTag, schema checks
   state.mjs        atomic state.json, control.json, events.jsonl
   agents/          dual-writer|reviewer|triage|reporter.md
   test/            node --test, pi stubbed
-mods/dual-pr/
+mods/whetstone/
   main.js mod.json look.js icons/ RECIPE.md preview.png
 assets/reference-review-loop.png
 ```
@@ -157,7 +158,7 @@ No npm dependencies in the engine (Node built-ins only), so it runs anywhere
 4. **Read-only pane.** Native layout from the reference, `watchFolder` on the
    run folder, `herdr-app check` + `herdr-app shot` against the reference.
 5. **Pane controls.** Pause / Stop / answer / focus lane / New run dialog.
-6. **Swap over.** `/dual-pr` starts the engine; keep `dual-pr.js` until a
+6. **Swap over.** `/dual-pr` starts the engine (and maybe becomes `/whetstone`); keep `dual-pr.js` until a
    few real runs pass. Metrics stay compatible with `dual-pr-metrics.mjs`.
 7. **Share** (optional): `RECIPE.md`, `preview.png`, `herdr-mod` topic.
 
@@ -166,7 +167,7 @@ No npm dependencies in the engine (Node built-ins only), so it runs anywhere
 - Step mode: should the run advance on its own (default) with an optional
   "wait for me between steps" toggle (a "Start <next step>" button)?
 - Mod install for development: does Herdr follow a symlink
-  `~/.config/herdr-app/mods/dual-pr → this repo`? If not, copy on install.
+  `~/.config/herdr-app/mods/whetstone → this repo`? If not, copy on install.
 - `--mode json` vs `--mode rpc` for lanes: rpc gives a true mid-turn abort;
   json is simpler. Decide in phase 2 after trying both.
 - Isolation hints (`MIX_TEST_PARTITION` etc.) carry over unchanged; confirm
