@@ -230,6 +230,12 @@ test("history reads as plain sentences through the whole run", async () => {
 
 // ---- New in the engine -----------------------------------------------------
 
+test("state keeps the args and pid so a crashed run can be resumed", async () => {
+  const { state, args } = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }] });
+  assert.deepEqual(state.args, args);
+  assert.equal(state.pid, process.pid);
+});
+
 test("the engine creates the lane and final worktrees itself", async () => {
   const { ws, args } = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }] });
   const root = join(args.repo, "..", ".whetstone", "peepmetrics-csv-export");

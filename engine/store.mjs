@@ -43,3 +43,14 @@ export async function openStore(dir) {
     }
   };
 }
+
+// Merge a change into a run's control.json (pause, stop, approvals, answers).
+export async function writeControl(dir, change) {
+  const path = join(dir, "control.json");
+  const control = await readJson(path, {});
+  change(control);
+  const tmp = path + "." + process.pid + ".tmp";
+  await writeFile(tmp, JSON.stringify(control, null, 2));
+  await rename(tmp, path);
+  return control;
+}

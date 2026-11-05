@@ -60,6 +60,16 @@ function plural(n, word) {
   return n + " " + word + (n === 1 ? "" : "s");
 }
 
+// Short kebab-case name used for branches, worktrees and run ids.
+export function slugify(text) {
+  return String(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/, "") || "task";
+}
+
 export async function runWhetstone({ args, config, harnesses, store, workspace, pollMs = 1000 }) {
   if (!args.task || !args.repo) throw new Error("whetstone needs args.task and args.repo");
   const st = store.state;
@@ -80,12 +90,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     // ---- Setup ---------------------------------------------------------------
     const repo = String(args.repo).replace(/\/+$/, "");
     const repoName = basename(repo);
-    const slug = (args.slug || args.task)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40)
-      .replace(/-+$/, "") || "task";
+    const slug = slugify(args.slug || args.task);
     const baseRef = args.baseRef || "HEAD";
     const maxRounds = Math.min(Math.max(Number(args.maxRounds) || 2, 1), 2);
     const root = join(dirname(repo), ".whetstone", repoName + "-" + slug);
@@ -108,6 +113,8 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     await store.update((s) => {
       s.id ??= slug + "-" + Date.now();
       s.startedAt ??= new Date().toISOString();
+      s.args = args;
+      s.pid = process.pid;
       Object.assign(s, {
         task: args.task, repo, slug, baseRef, root, reportDir, finalBranch, finalPath,
         steps: STEPS, stepMode: Boolean(args.stepMode), status: "running", error: null, next: null, question: null
