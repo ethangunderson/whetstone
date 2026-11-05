@@ -189,6 +189,20 @@ assets/reference-review-loop.png
 No npm dependencies in the engine (Node built-ins only), so it runs anywhere
 `pi` runs.
 
+## Status (2026-11-05)
+
+- Phase 1 done: `engine/run.mjs` ports `dual-pr.js` behind the harness
+  interface; checkpointed stages, pause-after-step, stop, step mode and
+  operator questions via `control.json`. 64 tests (`npm test`).
+- Phase 2 partly done: pi adapter (`engine/harness/pi.mjs`) and the
+  `whetstone` CLI. Real smoke test passes (`WHETSTONE_SMOKE=pi`), and one real
+  easy run (Sonnet 5.5 vs gpt-6-luna) finished in 2 minutes with a correct
+  branch and report. Still to do: Claude Code and Codex adapters.
+- Learned from real pi: `--session-id` lookup is per cwd, so resumes pass the
+  session file (`--session`); a resumed session's tools stay in its first cwd,
+  so prompts say where to `cd`; pi exits 0 on model errors (check
+  `stopReason`).
+
 ## Phases (TDD throughout)
 
 1. **Engine core with pi stubbed.** Port the stage logic. Tests drive full
