@@ -10,11 +10,11 @@ Today this is a pi-subagents workflow (`~/.pi/agent/workflows/dual-pr.js`,
 
 ## Decisions so far
 
-- **Every lane runs through `pi`**, with the model passed on the command line
-  (`--model claude-bridge/claude-opus-5-5:high`, `openai-codex/gpt-6-sol:high`).
-  This keeps pi's logins and model routing; no Codex or Claude Code CLI needed.
-  The lane functions are the only place that knows about `pi`, so another
-  runner could be added later.
+- **Each lane picks its harness** (`pi`, `claude-code`, `codex`), with the
+  model written the way that harness spells it. Ethan's setup runs both lanes
+  through `pi` (`claude-bridge/...`, `openai-codex/...`), which keeps pi's
+  logins and routing. Someone without pi can use Claude Code and Codex
+  directly. Harness adapters are the only code that knows about a CLI.
 - **The engine is not the mod.** Saving a mod file or switching layouts
   restarts mods, and a run lasts hours. The engine is a plain Node CLI that
   runs in its own Herdr terminal and checkpoints to disk. The mod only reads
@@ -30,25 +30,66 @@ Today this is a pi-subagents workflow (`~/.pi/agent/workflows/dual-pr.js`,
 - **New repo** shaped like a shareable Herdr mod: `mods/whetstone/` with
   `RECIPE.md` and `preview.png`, plus `engine/`.
 
-## How a lane maps to pi
+## Harnesses
 
-| Need | pi |
-|---|---|
-| Model + thinking | `--model <provider/id>:<level>` (same strings as `TIERS` today) |
-| Context across stages | `--session-id whetstone-<run>-<lane>`, reused stage to stage |
-| Role | `--system-prompt` from `agents/dual-*.md` (moved into this repo) |
-| Read-only reviewers | `--tools read,grep,find,ls,bash` |
-| Parseable output | `-p --mode json` (or `--mode rpc` for a lane that can be aborted mid-turn) |
-| Visible in Herdr | started with `hc run --bg`, labeled `whetstone=<run> lane=<who>` |
+An adapter turns one request into one CLI call:
 
-Structured output: pi has no `--json-schema`. Keep the current approach
-(last ```json block, `BASE:` / `INTEGRATOR:` / `SIGNOFF:` tags), validate in
-the engine, and re-ask once on invalid output.
+```js
+// engine/harness/<name>.mjs
+export default {
+  name: "pi",
+  detect(),   // installed? (logged in, where the CLI can tell)
+  run({ session, resume, cwd, system, model, effort, readOnly, prompt }) // → { ok, text, sessionId, error }
+}
+```
 
-Questions from writers: `contact_supervisor` doesn't exist outside
-pi-subagents. A writer that needs a decision ends its turn with a `QUESTION`
-block; the engine marks the lane `blocked`, the pane shows the question, and
-the answer is sent back into the same session.
+| Need | pi | Claude Code | Codex (unverified) |
+|---|---|---|---|
+| Headless | `-p` | `-p` | `codex exec` |
+| Model | `--model provider/id` | `--model` | `-m` |
+| Effort | `--thinking` | `--effort` | `-c model_reasoning_effort=` |
+| Same session across stages | `--session-id` | `--session-id <uuid>` then `--resume` | `codex exec resume <id>` |
+| Role prompt | `--system-prompt` | `--append-system-prompt` | prepend to prompt |
+| Read-only reviewer | `--tools read,grep,find,ls,bash` | `--tools` / `--disallowedTools` | `--sandbox read-only` |
+| Edits without asking | default | `--permission-mode` | `--sandbox workspace-write` |
+| Parseable output | `--mode json` | `--output-format stream-json` | `--json` |
+
+Lanes run as visible Herdr terminals (`hc run --bg`, labeled
+`whetstone=<run> lane=<id>`) once the pane exists; until then the engine
+spawns them directly.
+
+Effort is always `low | medium | high`; each adapter maps it. Decisions are
+parsed from text the same way for every harness (last ```json block,
+`INTEGRATOR:` / `SIGNOFF:` lines, `QUESTION` block), with one re-ask on
+invalid output.
+
+Writers ask the operator by ending their turn with a `QUESTION` block; the
+engine marks the lane `blocked`, the pane shows the question, and the answer
+goes back into the same session.
+
+Config (`~/.whetstone/config.json`; Ethan's defaults shown):
+
+```json
+{
+  "lanes": [
+    { "id": "claude", "name": "Claude", "harness": "pi" },
+    { "id": "codex",  "name": "Codex",  "harness": "pi" }
+  ],
+  "tiers": {
+    "easy":   { "claude": "claude-bridge/claude-sonnet-5-5:medium", "codex": "openai-codex/gpt-6-luna:medium" },
+    "medium": { "claude": "claude-bridge/claude-opus-5-5:medium",   "codex": "openai-codex/gpt-6-sol:medium" },
+    "hard":   { "claude": "claude-bridge/claude-fable-5-1:high",    "codex": "openai-codex/gpt-6.1-sol:high",
+                "fallback": { "claude": "claude-bridge/claude-opus-5-5:high", "codex": "openai-codex/gpt-6-sol:high" } }
+  },
+  "triage":   { "lane": "codex",  "model": "openai-codex/gpt-6-luna:low" },
+  "reporter": { "lane": "claude", "model": "claude-bridge/claude-sonnet-5-5:medium" },
+  "arbiter":  { "lane": "codex" }
+}
+```
+
+A tier with `fallback` probes each lane's model with a tiny call; if any lane
+can't reach its model, the whole tier switches to the fallback pair so the
+lanes stay even (today's Fable check, generalized).
 
 ## Files on disk
 
@@ -133,7 +174,9 @@ Several runs: a small picker in the header when more than one run is active.
 engine/
   cli.mjs          whetstone run|resume|status|pause|stop
   run.mjs          stage sequence ported from dual-pr.js
-  lane.mjs         pi invocation (the only pi-aware module)
+  harness/         pi.mjs, claude-code.mjs, codex.mjs (the only CLI-aware code)
+  config.mjs       defaults, tiers, fallback
+  workspace.mjs    git worktrees (the engine creates them, not the agents)
   parse.mjs        lastJson, lastTag, schema checks
   state.mjs        atomic state.json, control.json, events.jsonl
   agents/          writer|reviewer|triage|reporter.md (from ~/.pi/agent/agents/dual-*.md)
@@ -152,9 +195,10 @@ No npm dependencies in the engine (Node built-ins only), so it runs anywhere
    runs through a fake lane: consensus, tie → arbiter, clean review, P2-only
    round, two rounds + sign-off, a lane failure. Assert `state.json` at each
    step.
-2. **Real pi lanes.** `lane.mjs` with `-p --mode json` and `--session-id`;
-   one smoke run on an easy task in a scratch repo. Confirm session reuse
-   keeps context across stages.
+2. **Harness adapters.** pi first, then Claude Code, then Codex (confirm its
+   flags first). Unit-test each adapter's command line; opt-in smoke test
+   (`WHETSTONE_SMOKE=<harness>`) proves a second turn keeps the session.
+   Then a `whetstone run` CLI and one real run on an easy task.
 3. **Control.** Pause after step, pause now, stop, resume after crash.
    Questions through `control.json`.
 4. **Read-only pane.** Native layout from the reference, `watchFolder` on the
@@ -168,7 +212,8 @@ No npm dependencies in the engine (Node built-ins only), so it runs anywhere
 
 - Mod install for development: does Herdr follow a symlink
   `~/.config/herdr-app/mods/whetstone → this repo`? If not, copy on install.
-- `--mode json` vs `--mode rpc` for lanes: rpc gives a true mid-turn abort;
+- pi `--mode json` vs `--mode rpc` for lanes: rpc gives a true mid-turn abort;
   json is simpler. Decide in phase 2 after trying both.
+- Codex CLI flags are from memory; verify before writing its adapter.
 - Isolation hints (`MIX_TEST_PARTITION` etc.) carry over unchanged; confirm
   pi lanes still see the partition env.
