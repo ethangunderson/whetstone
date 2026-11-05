@@ -134,7 +134,7 @@ engine/
   lane.mjs         pi invocation (the only pi-aware module)
   parse.mjs        lastJson, lastTag, schema checks
   state.mjs        atomic state.json, control.json, events.jsonl
-  agents/          dual-writer|reviewer|triage|reporter.md
+  agents/          writer|reviewer|triage|reporter.md (from ~/.pi/agent/agents/dual-*.md)
   test/            node --test, pi stubbed
 mods/whetstone/
   main.js mod.json look.js icons/ RECIPE.md preview.png
