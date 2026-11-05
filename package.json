@@ -1,0 +1,10 @@
+{
+  "name": "whetstone",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Two coding agents build the same task, sharpen each other's work, and face adversarial review. Engine + Herdr pane.",
+  "type": "module",
+  "bin": { "whetstone": "engine/cli.mjs" },
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test --test-timeout=20000 'engine/test/*.test.mjs'" }
+}
