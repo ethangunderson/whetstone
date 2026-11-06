@@ -29,7 +29,7 @@ function fakeHc({ inbox, behave = {} } = {}) {
     if (script === "silent") { term.status = "idle"; return; }
     if (script === "exit") { term.state = "finished"; return; }
     await sleep(5);
-    await mkdir(dirname(file), { recursive: true });
+    // Like an agent's `cat > file`: the folder has to exist already.
     await writeFile(file, "reply from " + term.name + " #" + term.messages.length);
     term.status = "done";
     inbox.push(done);
@@ -194,11 +194,25 @@ test("a lane that exits fails the call", async () => {
   assert.match(r.error, /lane exited/);
 });
 
-test("a done line without the reply file fails clearly", async () => {
-  const { harness, base } = await setup({ behave: { default: async ({ done, inbox }) => inbox.push(done) } });
+test("a done line without the reply file gets one reminder, then fails clearly", async () => {
+  const { harness, base, fake } = await setup({ behave: { default: async ({ done, inbox }) => inbox.push(done) } });
   const r = await harness.run({ ...base, resume: false });
   assert.equal(r.ok, false);
   assert.match(r.error, /reply file/);
+  assert.equal(fake.calls.filter((c) => c[0] === "send" && /doesn't exist/.test(c[c.length - 1])).length, 1);
+});
+
+test("a lane that reports before writing its file can fix it and report again", async () => {
+  let asks = 0;
+  const { harness, base } = await setup({ behave: { default: async ({ file, done, inbox }) => {
+    asks += 1;
+    if (asks === 1) { inbox.push(done); return; }
+    await writeFile(file, "written on the second try");
+    inbox.push(done);
+  } } });
+  const r = await harness.run({ ...base, resume: false });
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.text, "written on the second try");
 });
 
 test("pause now interrupts the lane, and lifting the pause tells it to continue", async () => {

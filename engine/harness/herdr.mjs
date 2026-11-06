@@ -12,8 +12,8 @@
 // `/usr/bin/env PATH=<ours> <absolute agent>`; agents act on injected messages
 // when the first one explains the [whetstone] / [peer] prefixes.
 import { createHash, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 const WRITE_TOOLS = "read,grep,find,ls,bash,edit,write";
 const READ_TOOLS = "read,grep,find,ls,bash";
@@ -90,13 +90,19 @@ export function createHerdrHarness({ hc, inbox, engine, path, bins = {}, agent =
     let quietSince = null;
     let nudged = false;
     let paused = false;
+    let reminded = false;
     for (;;) {
       const line = await inbox.next((l) => bare(l) === doneLine, pollMs);
       if (line) {
         try {
           return { ok: true, text: await readFile(file, "utf8"), sessionId: name, terminal, error: null };
         } catch {
-          return fail("the lane reported done but its reply file is missing: " + file);
+          // Seen for real: the write failed but the shell still ran the send.
+          if (reminded) return fail("the lane reported done but its reply file is missing: " + file);
+          reminded = true;
+          quietSince = null;
+          await send(name, `[whetstone] I got your done message, but ${file} doesn't exist. Write it, then send done again.\n\n` + protocol);
+          continue;
         }
       }
       const control = req.control ? (await req.control()) || {} : {};
@@ -147,6 +153,8 @@ export function createHerdrHarness({ hc, inbox, engine, path, bins = {}, agent =
       const doneLine = `done ${req.key} ${token}`;
       const protocol = replyProtocol({ engine, file, key: req.key, token });
       try {
+        // Agents write with `cat > file`, which needs the folder to exist.
+        await mkdir(dirname(file), { recursive: true });
         if (req.resume && req.session) {
           const live = await info(req.session);
           if (live && live.state === "live") {
