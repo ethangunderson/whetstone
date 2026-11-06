@@ -1,5 +1,10 @@
 # whetstone — plan
 
+Work is tracked in Linear: workspace **whetstone** (https://linear.app/eg-whetstone),
+team `WHE`, projects "Herdr guideline audit", "Live lanes: features" and
+"Real-run verification". This file keeps intent and design; don't duplicate
+tasks here.
+
 Claude and Codex each build the same task, debate a middle road, one
 integrates, a Claude+Codex reviewer pair attacks it, and the writers respond.
 Today this is a pi-subagents workflow (`~/.pi/agent/workflows/dual-pr.js`,
