@@ -501,7 +501,8 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       return [
         "Before you converge, discuss the open disagreements directly with the " + NAME(peerLane) + " lane.",
         "Send it messages with: hc send " + peerTerminal + " \"[peer] <message>\" (at most 2 messages from you, each under 1200 characters).",
-        "Its messages arrive as [peer] messages. Answer what it asks, aim to agree on the base and the plan, and don't wait for more than 2 replies.",
+        "Its messages arrive as [peer] messages; one may take a few minutes. After you send a message, end your turn and wait for its reply before you write your converge response.",
+        "Answer what it asks and aim to agree on the base and the plan. Stop after 2 replies, or when the coordinator tells you to wrap up.",
         "Then write your converge response as below.",
         ""
       ];

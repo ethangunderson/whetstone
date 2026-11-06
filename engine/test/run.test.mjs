@@ -517,6 +517,7 @@ test("lanes that can message each other get a direct exchange before converging"
   const converge = calls.find((c) => c.key === "converge-claude").prompt;
   assert.match(converge, /hc send term-codex "\[peer\]/);
   assert.match(converge, /at most 2 messages/);
+  assert.match(converge, /wait for its reply before you write/i, "seen for real: a lane converged before the peer answered");
   const plain = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }] });
   assert.doesNotMatch(plain.calls.find((c) => c.key === "converge-claude").prompt, /\[peer\]/);
 });
