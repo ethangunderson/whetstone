@@ -8,9 +8,9 @@ test("splitModel separates a trailing effort level", () => {
   assert.deepEqual(splitModel("weird:model:low"), { model: "weird:model", effort: "low" });
 });
 
-test("defaults run both lanes through pi with today's tiers", () => {
+test("defaults run both lanes as live pi agents in Herdr, with today's tiers", () => {
   const config = resolveConfig();
-  assert.deepEqual(config.lanes.map((l) => [l.id, l.harness, l.prefix]), [["claude", "pi", "CL"], ["codex", "pi", "CX"]]);
+  assert.deepEqual(config.lanes.map((l) => [l.id, l.harness, l.agent, l.prefix]), [["claude", "herdr", "pi", "CL"], ["codex", "herdr", "pi", "CX"]]);
   assert.equal(config.tiers.hard.claude, "claude-bridge/claude-fable-5-1:high");
   assert.equal(config.tiers.hard.fallback.claude, "claude-bridge/claude-opus-5-5:high");
   assert.equal(config.triage.lane, "codex");

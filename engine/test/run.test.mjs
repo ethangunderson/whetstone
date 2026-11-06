@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { openStore } from "../store.mjs";
-import { resolveConfig } from "../config.mjs";
+import { DEFAULT_CONFIG, resolveConfig } from "../config.mjs";
 import { runWhetstone } from "../run.mjs";
 
 const clean = { verdict: "OK", summary: "fine", findings: [] };
@@ -69,7 +69,8 @@ function fakeWorkspace() {
   return { added, workspace: { async addWorktree(w) { added.push(w); } } };
 }
 
-const pi = resolveConfig();
+// Engine tests run both lanes on a fake harness registered as "pi".
+const pi = resolveConfig({ ...DEFAULT_CONFIG, lanes: DEFAULT_CONFIG.lanes.map((l) => ({ ...l, harness: "pi" })) });
 
 async function setup(o = {}) {
   const base = await mkdtemp(join(tmpdir(), "whetstone-run-"));

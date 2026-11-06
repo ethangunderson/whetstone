@@ -7,8 +7,9 @@ const TIERS = ["easy", "medium", "hard"];
 
 export const DEFAULT_CONFIG = {
   lanes: [
-    { id: "claude", name: "Claude", harness: "pi", prefix: "CL" },
-    { id: "codex", name: "Codex", harness: "pi", prefix: "CX" }
+    // Live pi agents in Herdr terminals. Use harness "pi" to run headless without Herdr.
+    { id: "claude", name: "Claude", harness: "herdr", agent: "pi", prefix: "CL" },
+    { id: "codex", name: "Codex", harness: "herdr", agent: "pi", prefix: "CX" }
   ],
   tiers: {
     easy: { claude: "claude-bridge/claude-sonnet-5-5:medium", codex: "openai-codex/gpt-6-luna:medium" },

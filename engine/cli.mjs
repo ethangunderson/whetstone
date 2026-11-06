@@ -20,7 +20,7 @@
 //
 // WHETSTONE_HOME (default ~/.whetstone) holds config.json and runs/<id>/.
 import { execFile } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
+import { accessSync, constants, existsSync, realpathSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -31,6 +31,8 @@ import { openStore, writeControl } from "./store.mjs";
 import { runWhetstone, slugify, STEPS } from "./run.mjs";
 import { gitWorkspace } from "./workspace.mjs";
 import { createPiHarness } from "./harness/pi.mjs";
+import { createHerdrHarness, terminalName } from "./harness/herdr.mjs";
+import { createInbox } from "./inbox.mjs";
 
 const HOME = process.env.WHETSTONE_HOME || join(homedir(), ".whetstone");
 const RUNS = join(HOME, "runs");
@@ -71,7 +73,62 @@ export function parseRunArgs(argv) {
   return out;
 }
 
-const harnesses = () => ({ pi: createPiHarness() });
+const HC = process.env.WHETSTONE_HC || "hc";
+const CLI_PATH = fileURLToPath(import.meta.url);
+
+async function hc(args) {
+  const { stdout } = await promisify(execFile)(HC, args, { maxBuffer: 8 << 20 });
+  return stdout.trim();
+}
+
+// The first executable named `name` on PATH, as an absolute path: lanes start
+// under Herdr Core, whose own PATH is minimal.
+function which(name) {
+  for (const dir of String(process.env.PATH || "").split(":")) {
+    try { accessSync(join(dir, name), constants.X_OK); return join(dir, name); } catch { /* next */ }
+  }
+  return name;
+}
+
+const usesHerdr = (config) => config.lanes.some((l) => l.harness === "herdr");
+
+// In the engine's own terminal (see launchEngine), its input carries the lanes' messages.
+function harnesses(state) {
+  const all = { pi: createPiHarness() };
+  if (process.env.WHETSTONE_ENGINE && state) {
+    all.herdr = createHerdrHarness({
+      hc,
+      inbox: createInbox({ stream: process.stdin }),
+      engine: process.env.HC_TERMINAL_ID,
+      path: process.env.PATH,
+      bins: { pi: which("pi") },
+      labels: [...(state.space ? ["herdr.space=" + state.space] : []), "whetstone=" + state.id]
+    });
+  }
+  return all;
+}
+
+// Live lanes report to the engine with `hc send`, so the engine runs in a
+// Herdr terminal of its own: not the caller's shell, which may close.
+async function launchEngine(store, args) {
+  let space = null;
+  if (process.env.HC_TERMINAL_ID) {
+    try { space = JSON.parse(await hc(["get", "--json", process.env.HC_TERMINAL_ID])).labels?.["herdr.space"] ?? null; } catch { /* not in Herdr */ }
+  }
+  const id = store.state.id;
+  const out = JSON.parse(await hc([
+    "run", "--bg", "--json", "--name", terminalName(id, "engine"), "--cwd", args.repo, "--no-parent",
+    ...(space ? ["--label", "herdr.space=" + space] : []), "--label", "whetstone=" + id,
+    "--", "/usr/bin/env", "PATH=" + process.env.PATH, "WHETSTONE_HOME=" + HOME, "WHETSTONE_ENGINE=" + id,
+    process.execPath, CLI_PATH, "__engine", id
+  ]));
+  await store.update((s) => { s.args = args; s.engineTerminal = out.address; s.space = space; });
+  console.log("Whetstone run " + id);
+  console.log("  engine  " + out.address + " (" + terminalName(id, "engine") + ")");
+  console.log("  state   " + store.dir);
+  console.log("Follow it in Herdr's Whetstone panel, or: whetstone status " + id);
+  return 0;
+}
 
 async function loadConfig() {
   const path = join(HOME, "config.json");
@@ -129,7 +186,7 @@ async function execute(store, args) {
   console.log("Whetstone run " + store.state.id);
   console.log("  state   " + store.dir);
   try {
-    const result = await runWhetstone({ args, config, harnesses: harnesses(), store, workspace: gitWorkspace });
+    const result = await runWhetstone({ args, config, harnesses: harnesses(store.state), store, workspace: gitWorkspace });
     console.log("Done: " + result.finalBranch + " (" + result.finalPath + ")");
     console.log("Report: " + result.report);
     return 0;
@@ -146,8 +203,16 @@ const commands = {
     args.slug = slugify(args.slug || args.task);
     const id = args.slug + "-" + stamp();
     const store = await openStore(join(RUNS, id));
-    await store.update((s) => { s.id = id; });
+    await store.update((s) => { s.id = id; s.args = args; });
+    if (usesHerdr(await loadConfig())) return launchEngine(store, args);
     return execute(store, args);
+  },
+
+  // Run by launchEngine inside the engine's own Herdr terminal.
+  async __engine([id]) {
+    const run = await findRun(id);
+    const code = await execute(await openStore(run.dir), run.state.args);
+    process.exit(code);
   },
 
   async resume([prefix]) {
@@ -161,7 +226,9 @@ const commands = {
     if (!run.state.args) throw new Error(run.id + " has no saved args to restart from");
     await writeControl(run.dir, (c) => { c.pause = null; c.stop = false; });
     console.log("Restarting " + run.id + " from its last finished stage");
-    return execute(await openStore(run.dir), run.state.args);
+    const store = await openStore(run.dir);
+    if (usesHerdr(await loadConfig())) return launchEngine(store, run.state.args);
+    return execute(store, run.state.args);
   },
 
   async pause([prefix, ...rest]) {
@@ -223,7 +290,7 @@ const commands = {
 
   async doctor() {
     const config = await loadConfig();
-    const available = harnesses();
+    const available = { pi: createPiHarness(), herdr: { detect: async () => { try { await hc(["ls", "--json"]); return { installed: true }; } catch { return { installed: false }; } } } };
     for (const lane of config.lanes) {
       const h = available[lane.harness];
       const found = h ? await h.detect() : { installed: false };

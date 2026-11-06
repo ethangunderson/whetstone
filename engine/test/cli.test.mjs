@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { parseRunArgs } from "../cli.mjs";
 import { slugify } from "../run.mjs";
@@ -109,4 +109,63 @@ test("the CLI runs when started through a symlink, as npm link installs it", asy
   await symlink(CLI, link);
   const { stdout } = await run("node", [link, "list"], { env: { ...process.env, WHETSTONE_HOME: dir } });
   assert.match(stdout, /linked-1/);
+});
+
+// A stand-in for hc: records its arguments, answers like hc would.
+async function fakeHc(dir) {
+  const { writeFile: write, chmod } = await import("node:fs/promises");
+  const bin = join(dir, "fake-hc.mjs");
+  await write(bin, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(join(dir, "hc-calls.jsonl"))}, JSON.stringify(args) + "\\n");
+if (args[0] === "get") console.log(JSON.stringify({ address: "t8", labels: { "herdr.space": "sp9" } }));
+else if (args[0] === "run") console.log(JSON.stringify({ address: "t99", name: args[args.indexOf("--name") + 1] }));
+else console.log("{}");
+`);
+  await chmod(bin, 0o755);
+  return bin;
+}
+
+async function hcCalls(dir) {
+  return (await readFile(join(dir, "hc-calls.jsonl"), "utf8")).trim().split("\n").map((l) => JSON.parse(l));
+}
+
+test("run starts the engine in its own Herdr terminal, in the caller's space, and returns", async () => {
+  const dir = await home();
+  const hc = await fakeHc(dir);
+  const repo = join(dir, "app");
+  await mkdir(repo);
+  const { stdout } = await run("node", [CLI, "run", "--repo", repo, "--difficulty", "easy", "Add CSV export"], {
+    env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HC: hc, HC_TERMINAL_ID: "t8" }
+  });
+  const launch = (await hcCalls(dir)).find((c) => c[0] === "run");
+  assert.ok(launch, "launched through hc");
+  assert.match(launch[launch.indexOf("--name") + 1], /^ws-[a-z0-9]{6}-engine$/);
+  assert.ok(launch.includes("--no-parent"), "outlives the shell that started it");
+  assert.ok(launch.includes("herdr.space=sp9"), "opens where the caller is");
+  const argv = launch.slice(launch.indexOf("--") + 1);
+  assert.equal(argv[0], "/usr/bin/env");
+  assert.ok(argv.some((a) => a.startsWith("PATH=")) && argv.includes("__engine"));
+  const id = argv[argv.length - 1];
+  assert.match(id, /^add-csv-export-/);
+  const state = JSON.parse(await readFile(join(dir, "runs", id, "state.json"), "utf8"));
+  assert.equal(state.args.task, "Add CSV export");
+  assert.equal(state.args.difficulty, "easy");
+  assert.equal(state.engineTerminal, "t99");
+  assert.equal(state.space, "sp9");
+  assert.match(stdout, new RegExp(id));
+});
+
+test("a run with headless pi lanes still runs in the foreground", async () => {
+  const dir = await home();
+  const { writeFile: write } = await import("node:fs/promises");
+  await write(join(dir, "config.json"), JSON.stringify({ lanes: [{ id: "claude", harness: "pi" }, { id: "codex", harness: "pi" }], tiers: Object.fromEntries(["easy", "medium", "hard"].map((t) => [t, { claude: "m", codex: "m" }])), triage: { lane: "codex", model: "m" }, reporter: { lane: "claude", model: "m" } }));
+  const hc = await fakeHc(dir);
+  // No real pi here, and the repo doesn't exist: the foreground engine fails fast, which is enough to show it ran in place.
+  await assert.rejects(run("node", [CLI, "run", "--repo", join(dir, "missing"), "--difficulty", "easy", "x"], {
+    env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HC: hc, PATH: "/usr/bin:/bin:" + dirname(process.execPath) }
+  }));
+  const { existsSync } = await import("node:fs");
+  assert.ok(!existsSync(join(dir, "hc-calls.jsonl")) || !(await hcCalls(dir)).some((c) => c[0] === "run"), "no engine terminal");
 });
