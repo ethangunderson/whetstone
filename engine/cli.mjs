@@ -74,6 +74,7 @@ export function parseRunArgs(argv) {
 }
 
 const HC = process.env.WHETSTONE_HC || "hc";
+const HERDR_APP = process.env.WHETSTONE_HERDR_APP || "herdr-app";
 const CLI_PATH = fileURLToPath(import.meta.url);
 
 async function hc(args) {
@@ -90,6 +91,12 @@ function which(name) {
   return name;
 }
 
+// Lanes get no herdr.* labels: started from the engine's terminal, they are
+// its sub-agents and show nested under it, not as tabs of their own.
+export function laneLabels(state) {
+  return ["whetstone=" + state.id];
+}
+
 const usesHerdr = (config) => config.lanes.some((l) => l.harness === "herdr");
 
 // In the engine's own terminal (see launchEngine), its input carries the lanes' messages.
@@ -102,29 +109,37 @@ function harnesses(state) {
       engine: process.env.HC_TERMINAL_ID,
       path: process.env.PATH,
       bins: { pi: which("pi") },
-      labels: [...(state.space ? ["herdr.space=" + state.space] : []), "whetstone=" + state.id]
+      labels: laneLabels(state)
     });
   }
   return all;
 }
 
 // Live lanes report to the engine with `hc send`, so the engine runs in a
-// Herdr terminal of its own: not the caller's shell, which may close.
+// Herdr terminal of its own, not the caller's shell, which may close. With a
+// Herdr window it gets one named tab in the caller's space; without one, a
+// hidden hc terminal.
 async function launchEngine(store, args) {
   let space = null;
   if (process.env.HC_TERMINAL_ID) {
     try { space = JSON.parse(await hc(["get", "--json", process.env.HC_TERMINAL_ID])).labels?.["herdr.space"] ?? null; } catch { /* not in Herdr */ }
   }
   const id = store.state.id;
-  const out = JSON.parse(await hc([
-    "run", "--bg", "--json", "--name", terminalName(id, "engine"), "--cwd", args.repo, "--no-parent",
-    ...(space ? ["--label", "herdr.space=" + space] : []), "--label", "whetstone=" + id,
-    "--", "/usr/bin/env", "PATH=" + process.env.PATH, "WHETSTONE_HOME=" + HOME, "WHETSTONE_ENGINE=" + id,
-    process.execPath, CLI_PATH, "__engine", id
-  ]));
-  await store.update((s) => { s.args = args; s.engineTerminal = out.address; s.space = space; });
+  const argv = ["/usr/bin/env", "PATH=" + process.env.PATH, "WHETSTONE_HOME=" + HOME, "WHETSTONE_ENGINE=" + id,
+    process.execPath, CLI_PATH, "__engine", id];
+  let terminal;
+  try {
+    const spec = { name: "Whetstone · " + args.slug, folder: args.repo, argv, ...(space ? { space } : {}) };
+    const { stdout } = await promisify(execFile)(HERDR_APP, ["do", "tab.new", JSON.stringify(spec)]);
+    terminal = JSON.parse(stdout).terminal;
+  } catch {
+    const out = JSON.parse(await hc(["run", "--bg", "--json", "--name", terminalName(id, "engine"), "--cwd", args.repo, "--no-parent",
+      "--label", "whetstone=" + id, "--", ...argv]));
+    terminal = out.address;
+  }
+  await store.update((s) => { s.args = args; s.engineTerminal = terminal; s.space = space; });
   console.log("Whetstone run " + id);
-  console.log("  engine  " + out.address + " (" + terminalName(id, "engine") + ")");
+  console.log("  engine  " + terminal + (space ? " (tab \"Whetstone · " + args.slug + "\")" : ""));
   console.log("  state   " + store.dir);
   console.log("Follow it in Herdr's Whetstone panel, or: whetstone status " + id);
   return 0;

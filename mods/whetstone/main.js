@@ -303,11 +303,11 @@ export default class Whetstone extends View {
       .border_color(active ? tint(tone, 0.55) : t.border)
       .when(active, (c) => c.bg(tint(tone, 0.05)))
       .cursor_pointer().hover((s) => s.bg(t.hover))
-      .tooltip(this.liveTerminal(lane.terminal) ? `Go to ${lane.name}'s terminal` : `Show ${lane.name}'s replies`)
+      .tooltip(this.liveTerminal(lane.terminal) ? `Peek at ${lane.name}'s terminal` : `Show ${lane.name}'s replies`)
       .on_click((_e, cx) => {
         cx.stop_propagation();
         const live = this.liveTerminal(lane.terminal);
-        if (live) run("agent.focus", { terminal: live });
+        if (live) run("terminal.peek", { terminal: live });
         else this.openLane(lane.id);
       })
       .child(h_flex().items_center()
@@ -518,7 +518,7 @@ export default class Whetstone extends View {
         .child(div().flex_none().text_size(12).text_color(t.muted).child(`${c.role} · ${c.status}`))
         .child(div().flex_1().min_w(0).truncate().font_family(MONO).text_size(11).text_color(t.dim).child(c.model)))
       .when(!c, (el) => el.child(div().flex_1()))
-      .when(Boolean(c && this.liveTerminal(c.terminal)), (el) => el.child(ghost(t, "ln-terminal", "Terminal", () => run("agent.focus", { terminal: c.terminal }))))
+      .when(Boolean(c && this.liveTerminal(c.terminal)), (el) => el.child(ghost(t, "ln-terminal", "Terminal", () => run("terminal.peek", { terminal: c.terminal }))))
       .child(h_flex().flex_none().p(2).gap(2).rounded(8).bg(t.raised)
         .child(segment("reply", "Reply"))
         .child(segment("activity", "Activity")));
@@ -552,7 +552,7 @@ export default class Whetstone extends View {
       if (live) {
         return v_flex().gap(8).items_start()
           .child(div().text_size(12.5).text_color(t.dim).child(`${l.card.name} runs live in Herdr; its terminal shows what it's doing.`))
-          .child(solid(t, "ln-go-terminal", "Go to terminal", () => run("agent.focus", { terminal: live })));
+          .child(solid(t, "ln-go-terminal", "Go to terminal", () => run("terminal.peek", { terminal: live })));
       }
       return div().text_size(12.5).text_color(t.dim).child(l.stage && l.stage.state === "running" ? "Starting…" : "No activity was recorded for this stage.");
     }

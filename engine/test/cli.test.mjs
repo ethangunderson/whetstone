@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { parseRunArgs } from "../cli.mjs";
+import { parseRunArgs, laneLabels } from "../cli.mjs";
 import { slugify } from "../run.mjs";
 
 const run = promisify(execFile);
@@ -131,30 +131,65 @@ async function hcCalls(dir) {
   return (await readFile(join(dir, "hc-calls.jsonl"), "utf8")).trim().split("\n").map((l) => JSON.parse(l));
 }
 
-test("run starts the engine in its own Herdr terminal, in the caller's space, and returns", async () => {
+// A stand-in for herdr-app: records `do` calls, answers tab.new like the app.
+async function fakeHerdrApp(dir, { fail = false } = {}) {
+  const { writeFile: write, chmod } = await import("node:fs/promises");
+  const bin = join(dir, "fake-herdr-app.mjs");
+  await write(bin, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(join(dir, "app-calls.jsonl"))}, JSON.stringify(process.argv.slice(2)) + "\\n");
+if (${fail}) { console.error("no window"); process.exit(1); }
+console.log(JSON.stringify({ space: "sp9", tab: "tb1", terminal: "t42" }));
+`);
+  await chmod(bin, 0o755);
+  return bin;
+}
+
+async function startRun(dir, extraEnv) {
+  const repo = join(dir, "app");
+  await mkdir(repo, { recursive: true });
+  const { stdout } = await run("node", [CLI, "run", "--repo", repo, "--difficulty", "easy", "Add CSV export"], {
+    env: { ...process.env, WHETSTONE_HOME: dir, HC_TERMINAL_ID: "t8", ...extraEnv }
+  });
+  return { stdout, repo };
+}
+
+test("run starts the engine in one named Herdr tab, in the caller's space, and returns", async () => {
   const dir = await home();
   const hc = await fakeHc(dir);
-  const repo = join(dir, "app");
-  await mkdir(repo);
-  const { stdout } = await run("node", [CLI, "run", "--repo", repo, "--difficulty", "easy", "Add CSV export"], {
-    env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HC: hc, HC_TERMINAL_ID: "t8" }
-  });
-  const launch = (await hcCalls(dir)).find((c) => c[0] === "run");
-  assert.ok(launch, "launched through hc");
-  assert.match(launch[launch.indexOf("--name") + 1], /^ws-[a-z0-9]{6}-engine$/);
-  assert.ok(launch.includes("--no-parent"), "outlives the shell that started it");
-  assert.ok(launch.includes("herdr.space=sp9"), "opens where the caller is");
-  const argv = launch.slice(launch.indexOf("--") + 1);
-  assert.equal(argv[0], "/usr/bin/env");
-  assert.ok(argv.some((a) => a.startsWith("PATH=")) && argv.includes("__engine"));
-  const id = argv[argv.length - 1];
+  const app = await fakeHerdrApp(dir);
+  const { stdout, repo } = await startRun(dir, { WHETSTONE_HC: hc, WHETSTONE_HERDR_APP: app });
+  const [cmd, name, json] = (await readFile(join(dir, "app-calls.jsonl"), "utf8")).trim().split("\n").map((l) => JSON.parse(l))[0];
+  assert.deepEqual([cmd, name], ["do", "tab.new"]);
+  const spec = JSON.parse(json);
+  assert.equal(spec.name, "Whetstone · add-csv-export", "a useful tab name, not a number");
+  assert.equal(spec.space, "sp9", "opens where the caller is");
+  assert.equal(spec.folder, repo);
+  assert.equal(spec.argv[0], "/usr/bin/env");
+  assert.ok(spec.argv.some((a) => a.startsWith("PATH=")) && spec.argv.includes("__engine"));
+  const id = spec.argv[spec.argv.length - 1];
   assert.match(id, /^add-csv-export-/);
   const state = JSON.parse(await readFile(join(dir, "runs", id, "state.json"), "utf8"));
   assert.equal(state.args.task, "Add CSV export");
-  assert.equal(state.args.difficulty, "easy");
-  assert.equal(state.engineTerminal, "t99");
+  assert.equal(state.engineTerminal, "t42");
   assert.equal(state.space, "sp9");
+  assert.ok(!(await hcCalls(dir)).some((c) => c[0] === "run"), "not a second, unnamed tab");
   assert.match(stdout, new RegExp(id));
+});
+
+test("without a Herdr window the engine still starts, as a hidden hc terminal", async () => {
+  const dir = await home();
+  const hc = await fakeHc(dir);
+  const app = await fakeHerdrApp(dir, { fail: true });
+  await startRun(dir, { WHETSTONE_HC: hc, WHETSTONE_HERDR_APP: app });
+  const launch = (await hcCalls(dir)).find((c) => c[0] === "run");
+  assert.ok(launch, "launched through hc");
+  assert.ok(launch.includes("--no-parent"));
+  assert.ok(!launch.some((a) => String(a).startsWith("herdr.")), "no herdr labels: a hidden worker");
+});
+
+test("lanes carry no herdr labels, so they nest under the engine instead of opening tabs", () => {
+  assert.deepEqual(laneLabels({ id: "run-1", space: "sp9" }), ["whetstone=run-1"]);
 });
 
 test("a run with headless pi lanes still runs in the foreground", async () => {
