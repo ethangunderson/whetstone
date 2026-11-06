@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { chmod, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { piArgs, parsePiOutput, createPiHarness } from "../harness/pi.mjs";
+import { piArgs, parsePiOutput, piActivity, createPiHarness } from "../harness/pi.mjs";
 
 const line = (e) => JSON.stringify(e);
 const assistant = (text, extra = {}) => line({ type: "message_end", message: { role: "assistant", content: [{ type: "thinking", thinking: "hmm" }, { type: "text", text }], stopReason: "stop", ...extra } });
@@ -54,6 +54,23 @@ test("parsePiOutput treats an aborted or empty run as a failure and skips junk l
   assert.match(empty.error, /no assistant reply/);
 });
 
+test("piActivity turns pi events into a readable activity stream", () => {
+  assert.deepEqual(piActivity({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: { command: "npm test" } }), { kind: "tool", id: "t1", tool: "bash", text: "npm test" });
+  assert.deepEqual(piActivity({ type: "tool_execution_start", toolCallId: "t2", toolName: "edit", args: { path: "src/a.js", oldText: "x", newText: "y" } }), { kind: "tool", id: "t2", tool: "edit", text: "src/a.js" });
+  assert.deepEqual(
+    piActivity({ type: "tool_execution_end", toolCallId: "t1", toolName: "bash", result: { content: [{ type: "text", text: "ok 1\nok 2\n" }] }, isError: false, durationMs: 1200 }),
+    { kind: "tool_end", id: "t1", ok: true, text: "ok 1\nok 2", ms: 1200 }
+  );
+  const long = piActivity({ type: "tool_execution_end", toolCallId: "t3", toolName: "bash", result: { content: [{ type: "text", text: "x".repeat(5000) }] }, isError: true });
+  assert.equal(long.ok, false);
+  assert.ok(long.text.length <= 801);
+  assert.deepEqual(piActivity({ type: "message_update", assistantMessageEvent: { type: "text_end", content: "Looking at the parser." } }), { kind: "text", text: "Looking at the parser." });
+  assert.deepEqual(piActivity({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "overloaded" } }), { kind: "error", text: "overloaded" });
+  assert.equal(piActivity({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Lo" } }), null);
+  assert.equal(piActivity({ type: "message_update", assistantMessageEvent: { type: "text_end", content: "  " } }), null);
+  assert.equal(piActivity({ type: "agent_start" }), null);
+});
+
 // A stand-in `pi` that records its argv and prints a scripted reply.
 async function fakePi(dir, script) {
   const bin = join(dir, "fake-pi.mjs");
@@ -80,6 +97,25 @@ console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", 
   assert.equal(await realpath(seen.cwd), await realpath(cwd));
   assert.ok(seen.argv.includes("--session-id"));
   assert.match(await readFile(logFile, "utf8"), /"type":"session"/);
+});
+
+test("run writes the activity stream as it goes, one JSON line per item with a timestamp", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "whetstone-pi-"));
+  const bin = await fakePi(dir, `
+const out = (e) => console.log(JSON.stringify(e));
+out({ type: "session", id: "s1" });
+out({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: { command: "npm test" } });
+out({ type: "tool_execution_end", toolCallId: "t1", toolName: "bash", result: { content: [{ type: "text", text: "pass 3" }] }, isError: false, durationMs: 40 });
+out({ type: "message_update", assistantMessageEvent: { type: "text_end", content: "All green." } });
+out({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "All green." }], stopReason: "stop" } });
+`);
+  const activityFile = join(dir, "activity", "draft-claude.jsonl");
+  const r = await createPiHarness({ bin }).run({ model: "m", prompt: "p", session: "s1", resume: false, cwd: dir, sessionDir: join(dir, "s"), activityFile });
+  assert.equal(r.ok, true);
+  const items = (await readFile(activityFile, "utf8")).trim().split("\n").map((l) => JSON.parse(l));
+  assert.deepEqual(items.map((i) => i.kind), ["tool", "tool_end", "text"]);
+  assert.equal(items[0].text, "npm test");
+  assert.ok(items.every((i) => typeof i.at === "string"));
 });
 
 test("run resumes from the session file pi wrote, wherever the new cwd is", async () => {

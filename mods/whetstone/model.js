@@ -191,3 +191,7 @@ export function pickRun(runs) {
   const active = runs.filter((r) => isActive(r.state));
   return (active.length ? newest(active) : newest(runs)).id;
 }
+
+export function storySections() { throw new Error("not implemented"); }
+export function laneStages() { throw new Error("not implemented"); }
+export function activityItems() { throw new Error("not implemented"); }

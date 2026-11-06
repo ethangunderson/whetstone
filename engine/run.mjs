@@ -27,6 +27,7 @@ import { basename, dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { lastJson, lastTag, parseQuestion, isTriage, isReview, isArbiter } from "./parse.mjs";
 import { splitModel } from "./config.mjs";
+import { draftSummary, critiqueSummary, convergeSummary, positionsOf, dispositionsOf } from "./story.mjs";
 
 export const STEPS = ["Triage", "Draft", "Debate", "Integrate", "Review", "Report"];
 const TIER_NAMES = ["easy", "medium", "hard"];
@@ -127,6 +128,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       s.files ??= {};
       s.worktrees ??= {};
       s.sessions ??= {};
+      s.story ??= { drafts: {}, critiques: {}, converge: {}, plan: null, selection: null };
       s.running = {};
       s.lanes ??= {};
       for (const l of config.lanes) {
@@ -221,7 +223,8 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         const r = await harness.run({
           key: req.key, lane: req.lane, role: req.role, session: req.session, resume: req.resume,
           cwd: req.cwd, system: req.system, model, effort, readOnly: req.readOnly, prompt: req.prompt,
-          sessionDir: join(store.dir, "sessions"), logFile: join(store.dir, "logs", req.key + ".jsonl")
+          sessionDir: join(store.dir, "sessions"), logFile: join(store.dir, "logs", req.key + ".jsonl"),
+          activityFile: join(store.dir, "activity", req.key + ".jsonl")
         });
         return { ok: Boolean(r && r.ok), text: String((r && r.text) || ""), sessionId: (r && r.sessionId) || req.session, error: (r && r.error) || null };
       } catch (error) {
@@ -420,7 +423,9 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         "2. Changes: files touched and why.",
         "3. Verification: exact commands run and results.",
         "4. Weak spots: what you are least sure about.",
-        "5. Final commit SHA."
+        "5. Final commit SHA.",
+        "Then a fenced ```json block summarizing it for the operator's dashboard:",
+        "{\"approach\": \"one or two sentences\", \"choices\": [\"key design choices\"], \"weakSpots\": [\"what you are least sure about\"]}"
       ].join("\n");
     }
 
@@ -432,6 +437,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     }]), "Drafting");
     const writer = {};
     ids.forEach((id, i) => { writer[id] = requireOk(drafts[i], name(id) + " draft"); });
+    await store.update((s) => { ids.forEach((id) => { s.story.drafts[id] = draftSummary(writer[id].text); }); });
     await progress("Both drafts done (" + ids.map((id, i) => name(id) + " " + dur(drafts[i].ms)).join(", ") + ")");
 
     // ---- 3. Discussion: critique, then converge -------------------------------
@@ -457,6 +463,8 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         "3. Bugs or gaps you see in either.",
         "4. The middle road: the concrete combined design you propose, naming which parts come from which branch.",
         "5. Which branch should be the base for integration (fewer changes needed to reach the middle road), and why.",
+        "Then a fenced ```json block summarizing it for the operator's dashboard:",
+        "{\"peerBetter\": [\"where the peer's version is better\"], \"mineBetter\": [\"where yours is better\"], \"middleRoad\": \"one or two sentences\"}",
         "End with exactly one line: BASE: " + ids.join(" or BASE: ")
       ].join("\n");
     }
@@ -467,6 +475,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     }]), "Comparing drafts");
     const critique = {};
     ids.forEach((id, i) => { critique[id] = requireOk(critiques[i], name(id) + " critique").text; });
+    await store.update((s) => { ids.forEach((id) => { s.story.critiques[id] = critiqueSummary(critique[id], ids); }); });
 
     function convergeTask(id) {
       const peer = other[id];
@@ -482,8 +491,9 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         "Then decide who integrates: the author of the base branch builds the combined version.",
         "",
         "Then add a fenced ```json block listing every item of the final plan and where it comes from:",
-        "{\"integrator\": " + ids.map((x) => "\"" + x + "\"").join(" | ") + ", \"items\": [{\"item\": \"short description\", \"source\": " +
-          ids.map((x) => "\"" + x + "\"").join(" | ") + " | \"both\" | \"new\"}]}",
+        "{\"integrator\": " + ids.map((x) => "\"" + x + "\"").join(" | ") + ", \"why\": \"why that branch should be the base, one sentence\", " +
+          "\"concessions\": [\"what you now accept from the peer\"], \"holding\": [\"where you still disagree\"], " +
+          "\"items\": [{\"item\": \"short description\", \"source\": " + ids.map((x) => "\"" + x + "\"").join(" | ") + " | \"both\" | \"new\"}]}",
         "(source = whose draft the item comes from; both = both drafts already did it; new = neither did).",
         "End with exactly one line: INTEGRATOR: " + ids.join(" or INTEGRATOR: ")
       ].join("\n");
@@ -510,6 +520,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     let integrator;
     let integratorReason;
     let decidedBy = "consensus";
+    let arbiterReasoning = null;
     if (vote[ids[0]] && vote[ids[0]] === vote[ids[1]]) {
       integrator = vote[ids[0]];
       integratorReason = "Both agents agreed on " + name(integrator) + ".";
@@ -529,14 +540,24 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       });
       const ruling = lastJson(arbiter.text) || {};
       decidedBy = "arbiter";
+      arbiterReasoning = typeof ruling.reasoning === "string" ? ruling.reasoning : null;
       integrator = ids.includes(ruling.integrator) ? ruling.integrator : ids[0];
       integratorReason = "Votes: " + ids.map((id) => id + "=" + (vote[id] || "none")).join(", ") +
         ". Arbiter chose " + integrator + ": " + (ruling.reasoning || "no reasoning returned") +
         (ruling.mergedPlan ? "\nArbiter's merged plan:\n" + ruling.mergedPlan : "");
     }
     const peer = other[integrator];
+    const converged = Object.fromEntries(ids.map((id) => [id, convergeSummary(plan[id], ids)]));
+    const planFrom = converged[integrator].items.length ? integrator : peer;
     await store.update((s) => {
       Object.assign(s, { votes: { integrator: { ...vote } }, integrator, integratorReason, decidedBy, plan: planSources });
+      s.story.converge = converged;
+      s.story.plan = { from: planFrom, items: converged[planFrom].items };
+      s.story.selection = {
+        integrator, decidedBy,
+        reasons: Object.fromEntries(ids.map((id) => [id, converged[id].why])),
+        arbiter: arbiterReasoning
+      };
     });
     await progress("Integrator: " + name(integrator) + (decidedBy === "arbiter" ? " (arbiter decided)" : " (both agreed)"));
 
@@ -580,7 +601,10 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         s.rounds = rounds.map((r) => ({
           round: r.round,
           verdicts: Object.fromEntries(ids.map((id) => [id, r.reviews[id].verdict])),
-          findings: r.findings.map((f) => ({ id: f.id, severity: f.severity, reviewer: f.reviewer, title: f.title, location: f.location, disposition: f.disposition || null })),
+          findings: r.findings.map((f) => ({
+            id: f.id, severity: f.severity, reviewer: f.reviewer, title: f.title, location: f.location,
+            positions: f.positions || {}, disposition: f.disposition || null, why: f.why || ""
+          })),
           fixed: Boolean(r.fix)
         }));
       });
@@ -659,10 +683,16 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
           "",
           findingsText,
           "",
-          "For every finding give: ACCEPT / REJECT / MODIFY, your reasoning with evidence (read the code, run tests), and the fix you would make. Flag anything the reviewers missed."
+          "For every finding give: ACCEPT / REJECT / MODIFY, your reasoning with evidence (read the code, run tests), and the fix you would make. Flag anything the reviewers missed.",
+          "End with a fenced ```json block for the operator's dashboard: {\"positions\": [{\"id\": \"<finding id>\", \"position\": \"ACCEPT\" | \"REJECT\" | \"MODIFY\", \"why\": \"one line\"}]}"
         ].join("\n")
       }]), "Review round " + round + "/" + maxRounds + " · writers responding");
       ids.forEach((id, i) => { roundInfo.responses[id] = requireOk(responses[i], name(id) + " round " + round + " response").text; });
+      ids.forEach((id) => {
+        const taken = positionsOf(roundInfo.responses[id]);
+        findings.forEach((f) => { if (taken[f.id]) f.positions = { ...(f.positions || {}), [id]: taken[f.id] }; });
+      });
+      await publishRounds();
 
       await progress("Review round " + round + "/" + maxRounds + " · " + name(integrator) + " applying fixes");
       const fixed = await call("r" + round + "-fix", {
@@ -679,17 +709,16 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
           "Fix every finding either of you ACCEPTed or MODIFYed. Where you and the peer disagree, decide and justify. Use test-first fixes where the repo expects it. Rerun the relevant tests and commit.",
           "",
           "Final response (recorded verbatim): a table of finding id → FIXED / REJECTED / DEFERRED with one-line reasoning, verification commands and results, final commit SHA.",
-          "Also include a fenced ```json block: {\"dispositions\": [{\"id\": \"<finding id>\", \"status\": \"FIXED\" | \"REJECTED\" | \"DEFERRED\"}]} covering every finding id."
+          "Also include a fenced ```json block: {\"dispositions\": [{\"id\": \"<finding id>\", \"status\": \"FIXED\" | \"REJECTED\" | \"DEFERRED\", \"why\": \"one line\"}]} covering every finding id."
         ].join("\n")
       });
       writer[integrator] = requireOk(fixed, "round " + round + " fixes");
       roundInfo.fix = fixed.text;
-      const disposed = lastJson(fixed.text) || {};
-      (Array.isArray(disposed.dispositions) ? disposed.dispositions : []).forEach((d) => {
-        if (!d || !["FIXED", "REJECTED", "DEFERRED"].includes(d.status)) return;
-        findings.forEach((f) => { if (f.id === d.id) f.disposition = d.status; });
-        ids.forEach((id) => roundMetrics[id].findings.forEach((f) => { if (f.id === d.id) f.disposition = d.status; }));
+      const disposed = dispositionsOf(fixed.text);
+      findings.forEach((f) => {
+        if (disposed[f.id]) Object.assign(f, { disposition: disposed[f.id].status, why: disposed[f.id].why });
       });
+      ids.forEach((id) => roundMetrics[id].findings.forEach((f) => { if (disposed[f.id]) f.disposition = disposed[f.id].status; }));
       await publishRounds();
       unreviewedFixes = true;
       history += "\nRound " + round + " findings:\n" + findingsText + "\n\nResolution by integrator:\n" + fixed.text + "\n";

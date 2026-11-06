@@ -47,6 +47,37 @@ export function parsePiOutput(stdout) {
   return { ok: true, text, sessionId, error: null };
 }
 
+// One pi event as an activity item for the lane viewer, or null when it's
+// noise (deltas, lifecycle). Every harness writes the same shape:
+// { kind: "tool" | "tool_end" | "text" | "error", ... }.
+const clip = (text, n) => {
+  const t = String(text || "").trim();
+  return t.length > n ? t.slice(0, n) + "…" : t;
+};
+
+export function piActivity(e) {
+  if (!e || typeof e !== "object") return null;
+  if (e.type === "tool_execution_start") {
+    const a = e.args || {};
+    const text = a.command ?? a.path ?? a.pattern ?? a.query ?? JSON.stringify(a);
+    return { kind: "tool", id: e.toolCallId, tool: e.toolName, text: clip(text, 400) };
+  }
+  if (e.type === "tool_execution_end") {
+    const out = ((e.result && e.result.content) || []).filter((c) => c.type === "text").map((c) => c.text).join("");
+    const item = { kind: "tool_end", id: e.toolCallId, ok: !e.isError, text: clip(out, 800) };
+    if (typeof e.durationMs === "number") item.ms = e.durationMs;
+    return item;
+  }
+  if (e.type === "message_update" && e.assistantMessageEvent && e.assistantMessageEvent.type === "text_end") {
+    const text = String(e.assistantMessageEvent.content || "").trim();
+    return text ? { kind: "text", text: clip(text, 6000) } : null;
+  }
+  if (e.type === "message_end" && e.message && e.message.role === "assistant" && e.message.stopReason === "error") {
+    return { kind: "error", text: e.message.errorMessage || "pi reported an error" };
+  }
+  return null;
+}
+
 async function findSessionFile(sessionDir, session) {
   let names = [];
   try { names = await readdir(sessionDir); } catch { /* no folder yet */ }
@@ -81,19 +112,40 @@ export function createPiHarness({ bin = "pi" } = {}) {
         await mkdir(dirname(req.logFile), { recursive: true });
         log = createWriteStream(req.logFile, { flags: "a" });
       }
+      let activity = null;
+      if (req.activityFile) {
+        await mkdir(dirname(req.activityFile), { recursive: true });
+        activity = createWriteStream(req.activityFile, { flags: "a" });
+      }
+      let partial = "";
+      const onLine = (line) => {
+        if (!activity || !line.trim()) return;
+        let event;
+        try { event = JSON.parse(line); } catch { return; }
+        const item = piActivity(event);
+        if (item) activity.write(JSON.stringify({ at: new Date().toISOString(), ...item }) + "\n");
+      };
       const argv = piArgs(req, { sessionDir: req.sessionDir, sessionFile });
       return new Promise((resolve) => {
         let stdout = "";
         let stderr = "";
         let settled = false;
+        // Resolves once the log files are flushed, so readers see the whole stage.
+        const close = (stream) => (stream ? new Promise((done) => stream.end(done)) : Promise.resolve());
         const finish = (result) => {
           if (settled) return;
           settled = true;
-          if (log) log.end();
-          resolve(result);
+          if (activity) onLine(partial);
+          Promise.all([close(log), close(activity)]).then(() => resolve(result));
         };
         const child = spawn(bin, argv, { cwd: req.cwd, stdio: ["ignore", "pipe", "pipe"], signal: req.signal });
-        child.stdout.on("data", (d) => { stdout += d; if (log) log.write(d); });
+        child.stdout.on("data", (d) => {
+          stdout += d;
+          if (log) log.write(d);
+          const lines = (partial + d).split("\n");
+          partial = lines.pop();
+          lines.forEach(onLine);
+        });
         child.stderr.on("data", (d) => { stderr += d; });
         child.on("error", (error) => finish({ ok: false, text: "", sessionId: req.session, error: "could not start pi (" + bin + "): " + error.message }));
         child.on("close", (code) => {

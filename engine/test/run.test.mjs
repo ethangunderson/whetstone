@@ -275,7 +275,52 @@ test("harness calls get the run's session folder and a raw log per stage", async
   const draft = calls.find((c) => c.key === "draft-claude");
   assert.equal(draft.sessionDir, join(store.dir, "sessions"));
   assert.equal(draft.logFile, join(store.dir, "logs", "draft-claude.jsonl"));
+  assert.equal(draft.activityFile, join(store.dir, "activity", "draft-claude.jsonl"));
   assert.ok(calls.every((c) => c.sessionDir === draft.sessionDir && c.logFile.startsWith(join(store.dir, "logs"))));
+});
+
+test("the story keeps what each stage decided, for the pane", async () => {
+  const { state } = await simulate({
+    votes: { claude: "codex", codex: "codex" },
+    reviews: [{ claude: p1, codex: clean }, { claude: clean, codex: clean }],
+    override: {
+      "draft-claude": () => ({ text: "Built it.\n" + fence({ approach: "Stream rows.", choices: ["no library"], weakSpots: ["memory"] }) }),
+      "draft-codex": () => ({ text: "Plain prose only.\nMore." }),
+      "critique-claude": () => ({ text: fence({ peerBetter: ["their tests"], mineBetter: ["streaming"], middleRoad: "Stream with their tests." }) + "\nBASE: codex" }),
+      "converge-claude": () => ({ text: fence({ integrator: "codex", why: "Smaller diff.", concessions: ["their tests"], holding: [], items: [{ item: "stream rows", source: "claude" }] }) + "\nINTEGRATOR: codex" }),
+      "converge-codex": () => ({ text: fence({ integrator: "codex", why: "Mine has the tests.", concessions: ["streaming"], holding: ["header casing"], items: [{ item: "stream rows", source: "claude" }, { item: "tests", source: "codex" }, { item: "BOM", source: "new" }] }) + "\nINTEGRATOR: codex" }),
+      "r1-respond-claude": () => ({ text: fence({ positions: [{ id: "CL1-1", position: "ACCEPT", why: "Real crash." }] }) }),
+      "r1-respond-codex": () => ({ text: fence({ positions: [{ id: "CL1-1", position: "MODIFY", why: "Guard earlier." }] }) }),
+      "r1-fix": () => ({ text: fence({ dispositions: [{ id: "CL1-1", status: "FIXED", why: "Guarded empty input." }] }) })
+    }
+  });
+  const story = state.story;
+  assert.deepEqual(story.drafts.claude, { approach: "Stream rows.", choices: ["no library"], weakSpots: ["memory"] });
+  assert.equal(story.drafts.codex.approach, "Plain prose only.");
+  assert.deepEqual(story.critiques.claude, { peerBetter: ["their tests"], mineBetter: ["streaming"], middleRoad: "Stream with their tests.", base: "codex" });
+  assert.deepEqual(story.converge.codex.holding, ["header casing"]);
+  assert.deepEqual(story.plan, { from: "codex", items: [{ item: "stream rows", source: "claude" }, { item: "tests", source: "codex" }, { item: "BOM", source: "new" }] });
+  assert.deepEqual(story.selection, { integrator: "codex", decidedBy: "consensus", reasons: { claude: "Smaller diff.", codex: "Mine has the tests." }, arbiter: null });
+  const f = state.rounds[0].findings[0];
+  assert.deepEqual(f.positions, { claude: { position: "ACCEPT", why: "Real crash." }, codex: { position: "MODIFY", why: "Guard earlier." } });
+  assert.equal(f.disposition, "FIXED");
+  assert.equal(f.why, "Guarded empty input.");
+});
+
+test("the arbiter's reasoning goes into the story", async () => {
+  const { state } = await simulate({ votes: { claude: "claude", codex: "codex" }, reviews: [{ claude: clean, codex: clean }] });
+  assert.equal(state.story.selection.decidedBy, "arbiter");
+  assert.equal(state.story.selection.arbiter, "smaller diff");
+});
+
+test("stage prompts ask for the summaries the story needs", async () => {
+  const { calls } = await simulate({ ...agree, reviews: [{ claude: p1, codex: clean }, { claude: clean, codex: clean }] });
+  const prompt = (key) => calls.find((c) => c.key === key).prompt;
+  assert.match(prompt("draft-claude"), /"approach"/);
+  assert.match(prompt("critique-claude"), /"peerBetter"/);
+  assert.match(prompt("converge-claude"), /"concessions"/);
+  assert.match(prompt("r1-respond-claude"), /"positions"/);
+  assert.match(prompt("r1-fix"), /"why"/);
 });
 
 test("resumed stages that move directories say where to work", async () => {
