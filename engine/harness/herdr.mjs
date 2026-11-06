@@ -68,6 +68,12 @@ export function createHerdrHarness({ hc, inbox, engine, path, bins = {}, agent =
     try { await hc(["interrupt", "--json", name]); } catch { /* already idle or gone */ }
   }
 
+  async function end(name) {
+    try { await hc(["kill", name]); } catch { /* gone */ }
+    try { await hc(["rm", name]); } catch { /* gone */ }
+    started.delete(name);
+  }
+
   async function start(req, name, message) {
     // A finished terminal from an earlier attempt can still hold the name.
     try { await hc(["rm", name]); } catch { /* not there */ }
@@ -147,6 +153,7 @@ export function createHerdrHarness({ hc, inbox, engine, path, bins = {}, agent =
             if (!(await send(req.session, "[whetstone] " + req.prompt + "\n\n" + protocol))) {
               return { ok: false, text: "", sessionId: req.session, error: "couldn't send the step to " + req.session };
             }
+            if (req.onTerminal) await req.onTerminal(live.address);
             return waitDone(req, req.session, live.address, file, doneLine, protocol);
           }
         }
@@ -154,7 +161,11 @@ export function createHerdrHarness({ hc, inbox, engine, path, bins = {}, agent =
         const intro = req.resume ? [preamble(engine), LOST] : [preamble(engine)];
         const message = [...intro, "[whetstone] " + req.prompt, "", protocol].join("\n");
         const terminal = await start(req, name, message);
-        return waitDone(req, name, terminal, file, doneLine, protocol);
+        if (req.onTerminal) await req.onTerminal(terminal);
+        const result = await waitDone(req, name, terminal, file, doneLine, protocol);
+        // Only writer lanes live on between stages; the rest close right away.
+        if (req.role !== "writer") await end(name);
+        return result;
       } catch (error) {
         return { ok: false, text: "", sessionId: req.session, error: "hc: " + String((error && (error.stderr || error.message)) || error).slice(0, 500) };
       }
@@ -162,11 +173,7 @@ export function createHerdrHarness({ hc, inbox, engine, path, bins = {}, agent =
 
     // Ends every terminal this run started.
     async close() {
-      for (const name of started) {
-        try { await hc(["kill", name]); } catch { /* gone */ }
-        try { await hc(["rm", name]); } catch { /* gone */ }
-      }
-      started.clear();
+      for (const name of [...started]) await end(name);
     }
   };
 }

@@ -42,19 +42,24 @@ function scriptFor(o) {
   };
 }
 
-function fakeHarness(script, delays = {}) {
+function fakeHarness(script, delays = {}, { messaging = false } = {}) {
   const calls = [];
+  const closed = [];
   return {
     calls,
+    closed,
     harness: {
       name: "fake",
+      messaging,
       async run(req) {
         calls.push(req);
         const lane = req.lane || "helper";
         await sleep(delays[lane] ?? 1);
         const out = await script(req);
-        return { ok: true, sessionId: req.session, ...out };
-      }
+        const session = messaging && !req.resume ? "term-" + (req.role === "writer" ? req.lane : req.key) : req.session;
+        return { ok: true, sessionId: session, terminal: messaging ? "t-" + lane : undefined, ...out };
+      },
+      async close() { closed.push(true); }
     }
   };
 }
@@ -69,7 +74,7 @@ const pi = resolveConfig();
 async function setup(o = {}) {
   const base = await mkdtemp(join(tmpdir(), "whetstone-run-"));
   const store = o.store || await openStore(join(base, "run"));
-  const fake = fakeHarness(scriptFor(o), o.delays ?? { claude: 30, codex: 5 });
+  const fake = fakeHarness(scriptFor(o), o.delays ?? { claude: 30, codex: 5 }, { messaging: o.messaging });
   const ws = fakeWorkspace();
   const args = { task: "Add CSV export", repo: join(base, "peepmetrics"), slug: "csv-export", ...o.args };
   const run = () => runWhetstone({ args, config: o.config || pi, harnesses: { pi: fake.harness }, store, workspace: ws.workspace, pollMs: 5 });
@@ -477,4 +482,48 @@ test("state tells the pane what each lane is doing", async () => {
   assert.equal(st.rounds[0].round, 1);
   assert.match(st.report, /REPORT\.md$/);
   assert.equal(st.finalBranch, "whetstone/csv-export");
+});
+
+// ---- Live lanes (a harness that can message, like herdr) ---------------------
+
+test("harness calls carry the run's id, folder and a live view of control.json", async () => {
+  const { calls, store } = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }] });
+  const draft = calls.find((c) => c.key === "draft-claude");
+  assert.equal(draft.runId, store.state.id);
+  assert.equal(draft.runDir, store.dir);
+  await control(store, { pause: "now" });
+  assert.deepEqual(await draft.control(), { pause: "now" });
+});
+
+test("lane terminals are recorded for the pane", async () => {
+  const s = await setup({ ...agree, reviews: [{ claude: clean, codex: clean }], messaging: true, args: { difficulty: "easy" }, delays: { claude: 80, codex: 1 } });
+  const running = s.run();
+  await until(() => s.store.state.lanes?.claude?.terminal === "t-claude");
+  await running;
+});
+
+test("a stop that interrupts a running stage ends the run as stopped, not failed", async () => {
+  const s = await setup({
+    ...agree, reviews: [{ claude: clean, codex: clean }], args: { difficulty: "easy" },
+    override: { "draft-claude": async () => { await control(s.store, { stop: true }); return { ok: false, text: "", error: "stopped by the operator" }; } }
+  });
+  await assert.rejects(s.run(), /stopped/i);
+  assert.equal(s.store.state.status, "stopped");
+});
+
+test("lanes that can message each other get a direct exchange before converging", async () => {
+  const { calls } = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }], messaging: true });
+  const converge = calls.find((c) => c.key === "converge-claude").prompt;
+  assert.match(converge, /hc send term-codex "\[peer\]/);
+  assert.match(converge, /at most 2 messages/);
+  const plain = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }] });
+  assert.doesNotMatch(plain.calls.find((c) => c.key === "converge-claude").prompt, /\[peer\]/);
+});
+
+test("the run closes its harnesses when it ends, however it ends", async () => {
+  const done = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }], args: { difficulty: "easy" } });
+  assert.equal(done.fake.closed.length, 1);
+  const s = await setup({ ...agree, reviews: [{ claude: clean, codex: clean }], args: { difficulty: "easy" }, override: { "draft-codex": () => ({ ok: false, text: "", error: "boom" }) } });
+  await assert.rejects(s.run(), /boom/);
+  assert.equal(s.fake.closed.length, 1);
 });

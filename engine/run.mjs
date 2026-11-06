@@ -77,6 +77,15 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
   try {
     return await body();
   } catch (error) {
+    return failOrStop(error);
+  } finally {
+    // Live lanes end with the run: close each harness once.
+    for (const h of new Set(config.lanes.map((l) => harnesses[l.harness]).filter(Boolean))) {
+      if (h.close) await h.close();
+    }
+  }
+
+  async function failOrStop(error) {
     if (error instanceof Stopped) {
       await store.update((s) => { s.status = "stopped"; s.running = {}; s.next = null; s.waitingSince = null; s.endedAt = new Date().toISOString(); });
       await store.event("Stopped by the operator");
@@ -223,10 +232,11 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         const r = await harness.run({
           key: req.key, lane: req.lane, role: req.role, session: req.session, resume: req.resume,
           cwd: req.cwd, system: req.system, model, effort, readOnly: req.readOnly, prompt: req.prompt,
+          runId: st.id, runDir: store.dir, control: () => store.readControl(), onTerminal: req.onTerminal,
           sessionDir: join(store.dir, "sessions"), logFile: join(store.dir, "logs", req.key + ".jsonl"),
           activityFile: join(store.dir, "activity", req.key + ".jsonl")
         });
-        return { ok: Boolean(r && r.ok), text: String((r && r.text) || ""), sessionId: (r && r.sessionId) || req.session, error: (r && r.error) || null };
+        return { ok: Boolean(r && r.ok), text: String((r && r.text) || ""), sessionId: (r && r.sessionId) || req.session, terminal: (r && r.terminal) || null, error: (r && r.error) || null };
       } catch (error) {
         return { ok: false, text: "", sessionId: req.session, error: String((error && error.message) || error) };
       }
@@ -252,7 +262,9 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         s.running[key] = { lane: o.lane, role: o.role, model: o.spec, since: new Date(t0).toISOString() };
         if (tracked) Object.assign(s.lanes[o.lane], { role: o.role, status: "working", stage: key, model: o.spec, since: new Date(t0).toISOString() });
       });
-      const base = { key, lane: o.lane, role: o.role, spec: o.spec, cwd: o.cwd, system, readOnly };
+      // Live lanes report their terminal as soon as it starts, so the pane can show it.
+      const onTerminal = tracked ? (address) => store.update((s) => { s.lanes[o.lane].terminal = address; }) : undefined;
+      const base = { key, lane: o.lane, role: o.role, spec: o.spec, cwd: o.cwd, system, readOnly, onTerminal };
       let res = await invoke({ ...base, session, resume: Boolean(o.resume), prompt: o.prompt });
       let sid = res.sessionId;
       let question;
@@ -268,6 +280,8 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
           sid = again.sessionId || sid;
         }
       }
+      // A stop that interrupted this call is a stop, not a failed stage.
+      if (!res.ok && (await store.readControl()).stop) throw new Stopped();
       const result = {
         ok: res.ok, text: res.text, error: res.error, sessionId: sid, ms: Date.now() - t0,
         lane: o.lane, role: o.role, model: o.spec, stage: o.stage, who: o.who, record: o.record !== false,
@@ -284,6 +298,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         delete s.running[key];
         if (o.role === "writer") s.sessions[o.lane] = sid;
         if (tracked) Object.assign(s.lanes[o.lane], { status: res.ok ? "done" : "failed", since: null });
+        if (tracked && res.terminal && o.role === "writer") s.lanes[o.lane].terminal = res.terminal;
       });
       return remember(result);
     }
@@ -477,6 +492,21 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     ids.forEach((id, i) => { critique[id] = requireOk(critiques[i], name(id) + " critique").text; });
     await store.update((s) => { ids.forEach((id) => { s.story.critiques[id] = critiqueSummary(critique[id], ids); }); });
 
+    // Live lanes can talk directly before converging; capped so it ends.
+    function discussion(id) {
+      const peerLane = other[id];
+      const peerTerminal = st.sessions[peerLane];
+      const live = harnesses[byId[id].harness].messaging && harnesses[byId[peerLane].harness].messaging;
+      if (!live || !peerTerminal) return [];
+      return [
+        "Before you converge, discuss the open disagreements directly with the " + NAME(peerLane) + " lane.",
+        "Send it messages with: hc send " + peerTerminal + " \"[peer] <message>\" (at most 2 messages from you, each under 1200 characters).",
+        "Its messages arrive as [peer] messages. Answer what it asks, aim to agree on the base and the plan, and don't wait for more than 2 replies.",
+        "Then write your converge response as below.",
+        ""
+      ];
+    }
+
     function convergeTask(id) {
       const peer = other[id];
       return [
@@ -487,6 +517,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         "",
         "Do not edit any files in this stage.",
         "",
+        ...discussion(id),
         "Converge. Respond point by point where you disagree, concede where the peer is right, and state the final middle-road plan you endorse as a concrete checklist the integrator can follow.",
         "Then decide who integrates: the author of the base branch builds the combined version.",
         "",

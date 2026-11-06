@@ -243,3 +243,26 @@ test("close ends the run's terminals", async () => {
   assert.ok(fake.calls.some((c) => c[0] === "kill"));
   assert.equal(Object.keys(fake.terms).length, 0);
 });
+
+test("reviewer and helper terminals close as soon as their call ends; writer lanes stay", async () => {
+  const { harness, base, fake } = await setup();
+  const writer = await harness.run({ ...base, resume: false });
+  await harness.run({ ...base, key: "r1-review-claude", role: "reviewer", readOnly: true, resume: false });
+  assert.deepEqual(Object.keys(fake.terms), [writer.sessionId]);
+});
+
+test("the lane's terminal is reported as soon as it starts, before the step finishes", async () => {
+  let reported = null;
+  let finished = false;
+  const { harness, base } = await setup({ behave: { default: async ({ file, done, inbox }) => {
+    await sleep(40);
+    assert.ok(reported, "reported before the reply");
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, "ok");
+    finished = true;
+    inbox.push(done);
+  } } });
+  const r = await harness.run({ ...base, resume: false, onTerminal: (t) => { reported = t; } });
+  assert.ok(finished);
+  assert.equal(reported, r.terminal);
+});
