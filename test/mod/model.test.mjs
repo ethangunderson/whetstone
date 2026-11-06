@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  shortModel, elapsed, runHeader, steps, laneCards, decision, stats, rounds, history, actions, pickRun, parseEvents
+  shortModel, elapsed, runHeader, statusLine, steps, laneCards, decision, stats, rounds, history, actions, pickRun, parseEvents, cliCommand
 } from "../../mods/whetstone/model.js";
 
 const NOW = Date.parse("2026-11-05T16:00:00Z");
@@ -45,10 +45,25 @@ test("runHeader names the run and says what state it is in", () => {
   assert.equal(runHeader(state(), { pause: "after-step" }, true).status, "Pausing after this stage");
   assert.equal(runHeader(state({ status: "paused" }), { pause: "after-step" }, true).status, "Paused");
   assert.equal(runHeader(state({ status: "waiting", next: { step: 3, name: "Debate" } }), {}, true).status, "Waiting for you");
-  assert.deepEqual(runHeader(state({ status: "blocked" }), {}, true).tone, "blocked");
+  assert.deepEqual(runHeader(state({ status: "blocked" }), {}, true).tone, "attention");
+  assert.equal(runHeader(state({ status: "waiting" }), {}, true).tone, "attention", "your turn is not an error");
+  assert.equal(runHeader(state({ status: "paused" }), {}, true).tone, "attention");
   assert.equal(runHeader(state(), {}, false).status, "Interrupted", "an active run without its process");
   assert.deepEqual(runHeader(state({ status: "done" }), {}, false), { slug: "csv-export", task: "Add CSV export to the reports page", status: "Done", tone: "done" });
   assert.equal(runHeader(state({ status: "failed" }), {}, false).tone, "failed");
+});
+
+test("statusLine adds the latest event only while the run is moving", () => {
+  assert.deepEqual(statusLine(state({ latest: "Step 2/6 · Drafting" }), {}, true), { status: "Running", tone: "working", detail: "Drafting" });
+  assert.equal(statusLine(state({ status: "waiting", latest: "Waiting for you to start step 3/6 · Debate" }), {}, true).detail, "");
+  assert.equal(statusLine(state({ latest: "Step 2/6 · Drafting" }), { pause: "after-step" }, true).detail, "");
+  assert.equal(statusLine(state({ status: "done", latest: "Done · x" }), {}, false).detail, "");
+});
+
+test("cliCommand uses the recorded node and CLI paths, else whetstone on PATH", () => {
+  assert.deepEqual(cliCommand({ node: "/n/bin/node", cli: "/w/engine/cli.mjs" }, ["pause", "x"]), ["/n/bin/node", ["/w/engine/cli.mjs", "pause", "x"]]);
+  assert.deepEqual(cliCommand(null, ["pause", "x"]), ["whetstone", ["pause", "x"]]);
+  assert.deepEqual(cliCommand({ node: "/n/bin/node" }, ["stop", "x"]), ["whetstone", ["stop", "x"]]);
 });
 
 test("steps mark done, current and later", () => {
@@ -93,7 +108,7 @@ test("decision explains who integrates, how it was decided, and whose plan won o
 });
 
 test("stats: difficulty, rounds, open findings, elapsed", () => {
-  assert.deepEqual(stats(state(), NOW), [["Difficulty", "Hard"], ["Rounds", "0"], ["Open findings", "–"], ["Elapsed", "12m"]]);
+  assert.deepEqual(stats(state(), NOW), [["Difficulty", "Hard"], ["Rounds", "0"], ["Open findings", "–"], ["Active", "12m"]]);
   const reviewed = state({
     difficulty: "hard", fallback: "fallback", step: 5,
     rounds: [{ round: 1, findings: [
@@ -103,8 +118,10 @@ test("stats: difficulty, rounds, open findings, elapsed", () => {
       { id: "CX1-3", severity: "P2", disposition: "DEFERRED" }
     ] }]
   });
-  assert.deepEqual(stats(reviewed, NOW), [["Difficulty", "Hard · fallback"], ["Rounds", "1"], ["Open findings", "2"], ["Elapsed", "12m"]]);
-  assert.equal(stats(state({ status: "done", metrics: { totalMs: 30 * 60_000 } }), NOW)[3][1], "30m", "a finished run shows its total");
+  assert.deepEqual(stats(reviewed, NOW), [["Difficulty", "Hard · fallback"], ["Rounds", "1"], ["Open findings", "2"], ["Active", "12m"]]);
+  assert.equal(stats(state({ status: "done", endedAt: ago(2 * 60_000) }), NOW)[3][1], "10m", "a finished run stops counting");
+  assert.equal(stats(state({ waitedMs: 5 * 60_000 }), NOW)[3][1], "7m", "time spent waiting for you doesn't count");
+  assert.equal(stats(state({ status: "waiting", waitedMs: 60_000, waitingSince: ago(3 * 60_000) }), NOW)[3][1], "8m", "nor does the wait in progress");
 });
 
 test("rounds count findings by severity and keep their dispositions", () => {

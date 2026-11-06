@@ -5,15 +5,14 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { exec, home, theme, run, notify, readTextFile, watchFolder } from "herdr";
+import { exec, home, appHome, theme, run, notify, readTextFile, watchFolder, nextCommand } from "herdr";
 import * as fs from "fs/promises";
 import {
-  isActive, runHeader, steps, laneCards, decision, stats, rounds, history, actions, pickRun, parseEvents
+  isActive, runHeader, statusLine, steps, laneCards, decision, stats, rounds, history, actions, pickRun, parseEvents, cliCommand
 } from "./model.js";
 
 const ICONS = "mods/whetstone/icons";
 const MONO = "JetBrains Mono";
-const CLI = "whetstone";
 const MIN_RELOAD_MS = 800;
 const HISTORY = 14;
 
@@ -25,7 +24,8 @@ function json(text) {
 }
 
 function tones(t) {
-  return { working: t.working ?? t.ansi3, blocked: t.blocked ?? t.ansi3, done: t.done ?? t.ansi2, failed: t.ansi1, idle: t.idle ?? t.dim };
+  // attention: it's your turn (waiting, paused, a question). Not an error, so the accent.
+  return { working: t.working ?? t.ansi3, attention: t.accent ?? t.ansi4, done: t.done ?? t.ansi2, failed: t.ansi1, idle: t.idle ?? t.dim };
 }
 
 export default class Whetstone extends View {
@@ -40,6 +40,11 @@ export default class Whetstone extends View {
     this.lastLoad = 0;
     this.answer = InputState.new({ placeholder: "Your answer…" });
     this.answer.on("submit", (_e, cx) => this.sendAnswer(cx));
+    // Written by scripts/install-mod.sh: absolute node and cli.mjs paths.
+    cx.spawn(async (cx) => {
+      this.cliConfig = json(await readTextFile(`${appHome()}/mods/whetstone/cli.json`));
+      cx.notify();
+    });
     this.refresh(cx);
     // Catches up when the folder can't be watched yet, and keeps "4m" ticking.
     cx.timer.every(5000, (cx) => this.refresh(cx));
@@ -47,6 +52,19 @@ export default class Whetstone extends View {
       for (;;) {
         try { await watchFolder(this.root); } catch { return; }
         this.refresh(cx);
+      }
+    });
+    // Keys and `herdr-app do whetstone.<command>`: the same actions as the buttons,
+    // on the shown run, when the run's state offers them.
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const command = await nextCommand();
+        const v = this.view;
+        if (v && actions(v.state, v.control, v.alive).includes(command)) {
+          if (command === "stop") this.confirmStop = true;
+          this.act(command, cx);
+        }
+        cx.notify();
       }
     });
   }
@@ -111,11 +129,12 @@ export default class Whetstone extends View {
     this.busy = busy;
     cx.notify();
     cx.spawn(async (cx) => {
+      const [command, argv] = cliCommand(this.cliConfig, args);
       try {
-        const r = await exec(CLI, args);
+        const r = await exec(command, argv);
         if (r.code !== 0) notify({ title: "Whetstone", body: (r.stderr || r.stdout).trim(), level: "error" });
       } catch (e) {
-        notify({ title: "Whetstone", body: `Couldn't run ${CLI}: ${e?.message ?? e}`, level: "error" });
+        notify({ title: "Whetstone", body: `Couldn't run ${command}: ${e?.message ?? e}. Rerun npm run install-mod in the whetstone repo.`, level: "error" });
       }
       this.busy = null;
       this.lastLoad = 0;
@@ -130,7 +149,8 @@ export default class Whetstone extends View {
     switch (name) {
       case "restart":
         // The engine runs for a long time, so it gets a terminal of its own.
-        run("pane.split", { direction: "right", argv: [CLI, "resume", v.id] });
+        const [command, argv] = cliCommand(this.cliConfig, ["resume", v.id]);
+        run("pane.split", { direction: "right", argv: [command, ...argv] });
         return;
       case "report":
         exec("open", [v.state.report]);
@@ -210,7 +230,7 @@ export default class Whetstone extends View {
 
   stepsCard(t, v) {
     const o = tones(t);
-    const h = runHeader(v.state, v.control, v.alive);
+    const h = statusLine(v.state, v.control, v.alive);
     const acts = actions(v.state, v.control, v.alive);
     const chip = (s) => {
       const done = s.state === "done";
@@ -229,13 +249,12 @@ export default class Whetstone extends View {
         .text_size(12).font_medium().text_color(done || current ? t.foreground : t.dim)
         .child(badge).child(div().child(s.name));
     };
-    const latest = String(v.state.latest ?? "").replace(/^Step \d+\/\d+ · /, "");
     return this.card(t, "ws-steps").gap(10)
       .child(h_flex().gap(6).flex_wrap().children(steps(v.state).map(chip)))
       .child(h_flex().gap(6).items_center().text_size(12)
         .child(div().flex_none().w(7).h(7).rounded_full().bg(o[h.tone]))
         .child(div().flex_none().font_medium().text_color(o[h.tone]).child(h.status))
-        .when(Boolean(latest) && v.state.status !== "done", (el) => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(latest))))
+        .when(Boolean(h.detail), (el) => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(h.detail))))
       .when(acts.includes("approve"), (el) => el.child(h_flex().child(
         this.solid(t, "ws-approve", this.busy === "approve" ? "Starting…" : `Start ${v.state.next?.name ?? "next step"}`, (cx) => this.act("approve", cx)))))
       .when(acts.includes("report"), (el) => el.child(h_flex().child(
@@ -244,7 +263,7 @@ export default class Whetstone extends View {
 
   laneCard(t, lane) {
     const o = tones(t);
-    const tone = { working: o.working, "needs you": o.blocked, failed: o.failed, done: o.done, idle: o.idle }[lane.status];
+    const tone = { working: o.working, "needs you": o.attention, failed: o.failed, done: o.done, idle: o.idle }[lane.status];
     const active = lane.status === "working" || lane.status === "needs you";
     const marker = lane.status === "working"
       ? svg(`${ICONS}/ring.svg`).w(13).h(13).flex_none().text_color(tone).spin(900)
@@ -267,10 +286,10 @@ export default class Whetstone extends View {
     const o = tones(t);
     const who = v.state.lanes?.[q.lane]?.name ?? q.lane;
     return v_flex().id("ws-question").flex_none().p(12).gap(8).rounded(10).border_1()
-      .border_color(tint(o.blocked, 0.6)).bg(tint(o.blocked, 0.05))
+      .border_color(tint(o.attention, 0.6)).bg(tint(o.attention, 0.05))
       .child(h_flex().gap(6).items_center()
-        .child(div().w(7).h(7).rounded_full().bg(o.blocked))
-        .child(div().text_size(12).font_medium().text_color(o.blocked).child(`${who} asks`)))
+        .child(div().w(7).h(7).rounded_full().bg(o.attention))
+        .child(div().text_size(12).font_medium().text_color(o.attention).child(`${who} asks`)))
       .child(div().text_size(12.5).text_color(t.foreground).child(q.text))
       .child(h_flex().gap(8).items_center()
         .child(div().id("ws-answer").flex_1().min_w(0).h(30).px(10).flex().items_center().rounded(8).border_1().border_color(t.input)
@@ -306,7 +325,7 @@ export default class Whetstone extends View {
 
   findingsCard(t, v) {
     const sev = { P0: t.ansi1, P1: t.ansi3, P2: t.ansi4 };
-    const disp = { fixed: t.ansi2, rejected: t.dim, deferred: tones(t).blocked, open: t.foreground };
+    const disp = { fixed: t.ansi2, rejected: t.dim, deferred: tones(t).attention, open: t.foreground };
     const legend = h_flex().gap(10).items_center().text_size(11).text_color(t.dim).children(
       [["P0", "must fix"], ["P1", "should fix"], ["P2", "minor"]].map(([s, word]) =>
         h_flex().gap(4).items_center().child(div().w(6).h(6).rounded_full().bg(sev[s])).child(div().child(word))));

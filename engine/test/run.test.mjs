@@ -375,9 +375,13 @@ test("step mode waits for approval before each new step", async () => {
   await control(s.store, { approved: 2 });
   await until(() => s.store.state.status === "waiting" && s.store.state.next.step === 3);
   assert.ok(s.fake.calls.some((c) => c.key === "draft-claude") && !s.fake.calls.some((c) => c.key.startsWith("critique-")));
+  await sleep(60);
   await control(s.store, { approved: 6 });
   await running;
   assert.equal(s.store.state.status, "done");
+  assert.ok(s.store.state.waitedMs >= 60, "waitedMs " + s.store.state.waitedMs);
+  assert.equal(s.store.state.waitingSince, null);
+  assert.ok(Date.parse(s.store.state.endedAt) >= Date.parse(s.store.state.startedAt));
 });
 
 test("a writer's question blocks its lane until the operator answers", async () => {

@@ -31,16 +31,31 @@ export function runHeader(state, control, alive) {
   switch (state.status) {
     case "running":
       return control && control.pause
-        ? { ...base, status: "Pausing after this stage", tone: "blocked" }
+        ? { ...base, status: "Pausing after this stage", tone: "attention" }
         : { ...base, status: "Running", tone: "working" };
-    case "paused": return { ...base, status: "Paused", tone: "blocked" };
-    case "waiting": return { ...base, status: "Waiting for you", tone: "blocked" };
-    case "blocked": return { ...base, status: "Needs you", tone: "blocked" };
+    case "paused": return { ...base, status: "Paused", tone: "attention" };
+    case "waiting": return { ...base, status: "Waiting for you", tone: "attention" };
+    case "blocked": return { ...base, status: "Needs you", tone: "attention" };
     case "done": return { ...base, status: "Done", tone: "done" };
     case "failed": return { ...base, status: "Failed", tone: "failed" };
     case "stopped": return { ...base, status: "Stopped", tone: "idle" };
     default: return { ...base, status: titleCase(state.status || "starting"), tone: "idle" };
   }
+}
+
+// The status word plus what's happening, but only while the run is moving:
+// otherwise the latest event just repeats the status.
+export function statusLine(state, control, alive) {
+  const { status, tone } = runHeader(state, control, alive);
+  const moving = state.status === "running" && alive && !(control && control.pause);
+  return { status, tone, detail: moving ? String(state.latest || "").replace(/^Step \d+\/\d+ · /, "") : "" };
+}
+
+// How the pane runs the CLI: the node and cli.mjs paths recorded at install
+// time (Herdr's exec doesn't see a login shell's PATH), else `whetstone`.
+export function cliCommand(config, args) {
+  if (config && config.node && config.cli) return [config.node, [config.cli, ...args]];
+  return ["whetstone", args];
 }
 
 export function steps(state) {
@@ -104,12 +119,15 @@ export function stats(state, now) {
   const rs = state.rounds || [];
   const findings = rs.flatMap((r) => r.findings || []);
   const difficulty = state.difficulty ? titleCase(state.difficulty) + (state.fallback === "fallback" ? " · fallback" : "") : "–";
-  const total = state.status === "done" && state.metrics ? state.metrics.totalMs : now - Date.parse(state.startedAt);
+  // Active time: wall time minus the time spent waiting for the operator.
+  const end = state.endedAt ? Date.parse(state.endedAt) : now;
+  const waiting = state.waitingSince ? now - Date.parse(state.waitingSince) : 0;
+  const total = end - Date.parse(state.startedAt) - (state.waitedMs || 0) - waiting;
   return [
     ["Difficulty", difficulty],
     ["Rounds", String(rs.length)],
     ["Open findings", rs.length ? String(findings.filter(isOpen).length) : "–"],
-    ["Elapsed", state.startedAt ? elapsed(total) : "–"]
+    ["Active", state.startedAt ? elapsed(total) : "–"]
   ];
 }
 

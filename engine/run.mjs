@@ -77,10 +77,10 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     return await body();
   } catch (error) {
     if (error instanceof Stopped) {
-      await store.update((s) => { s.status = "stopped"; s.running = {}; s.next = null; });
+      await store.update((s) => { s.status = "stopped"; s.running = {}; s.next = null; s.waitingSince = null; s.endedAt = new Date().toISOString(); });
       await store.event("Stopped by the operator");
     } else {
-      await store.update((s) => { s.status = "failed"; s.error = String((error && error.message) || error); s.running = {}; });
+      await store.update((s) => { s.status = "failed"; s.error = String((error && error.message) || error); s.running = {}; s.waitingSince = null; s.endedAt = new Date().toISOString(); });
       await store.event("Failed · " + String((error && error.message) || error).split("\n")[0]);
     }
     throw error;
@@ -120,6 +120,9 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         steps: STEPS, stepMode: Boolean(args.stepMode), status: "running", error: null, next: null, question: null
       });
       s.step ??= 0;
+      s.waitedMs ??= 0;
+      s.waitingSince = null;
+      s.endedAt = null;
       s.results ??= {};
       s.files ??= {};
       s.worktrees ??= {};
@@ -135,6 +138,12 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     const log = [];
 
     // ---- Plumbing ------------------------------------------------------------
+
+    // Time spent waiting for the operator, kept apart so "active time" means agent time.
+    function endWait(s) {
+      if (s.waitingSince) s.waitedMs = (s.waitedMs || 0) + (Date.now() - Date.parse(s.waitingSince));
+      s.waitingSince = null;
+    }
 
     function progress(text) {
       return store.event((st.step ? "Step " + st.step + "/" + STEPS.length + " · " : "") + text);
@@ -154,14 +163,14 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         const waiting = st.stepMode && st.step > 1 && (Number(c.approved) || 1) < st.step;
         if (!pause && !waiting) {
           if (st.status === "paused" || st.status === "waiting") {
-            await store.update((s) => { s.status = "running"; s.next = null; });
+            await store.update((s) => { s.status = "running"; s.next = null; endWait(s); });
             await store.event("Resumed");
           }
           return;
         }
         const status = pause ? "paused" : "waiting";
         if (st.status !== status) {
-          await store.update((s) => { s.status = status; s.next = { step: st.step, name: STEPS[st.step - 1] }; });
+          await store.update((s) => { s.status = status; s.next = { step: st.step, name: STEPS[st.step - 1] }; s.waitingSince ??= new Date().toISOString(); });
           await store.event(pause
             ? "Paused · holding before the next stage"
             : "Waiting for you to start step " + st.step + "/" + STEPS.length + " · " + STEPS[st.step - 1]);
@@ -176,6 +185,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         s.question = { id, lane: laneId, stage: key, text, at: new Date().toISOString() };
         s.lanes[laneId].status = "blocked";
         s.status = "blocked";
+        s.waitingSince ??= new Date().toISOString();
       });
       await store.event(name(laneId) + " has a question for you");
       for (;;) {
@@ -187,6 +197,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
             s.question = null;
             s.lanes[laneId].status = "working";
             s.status = "running";
+            endWait(s);
           });
           await store.event("Answer sent to " + name(laneId));
           return answer.trim();
@@ -803,6 +814,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       s.reportOk = report.ok;
       s.status = "done";
       s.next = null;
+      s.endedAt = new Date().toISOString();
     });
     await store.event("Done · " + finalBranch + " · total " + dur(metrics.totalMs));
 
