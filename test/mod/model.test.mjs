@@ -130,7 +130,7 @@ test("rounds count findings by severity and keep their dispositions", () => {
     { id: "CL1-2", severity: "P2", reviewer: "claude", title: "Naming", disposition: null }
   ] }] }));
   assert.deepEqual(r[0].counts, { P0: 1, P1: 0, P2: 1 });
-  assert.deepEqual(r[0].findings[0], { id: "CL1-1", severity: "P0", reviewer: "Claude", title: "Crash on empty", disposition: "fixed" });
+  assert.deepEqual(r[0].findings[0], { id: "CL1-1", severity: "P0", reviewer: "Claude", title: "Crash on empty", disposition: "fixed", positions: [], why: "" });
   assert.equal(r[0].findings[1].disposition, "open");
   assert.deepEqual(rounds(state()), []);
 });

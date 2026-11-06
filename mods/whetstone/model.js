@@ -144,7 +144,9 @@ export function rounds(state) {
         severity: f.severity,
         reviewer: (lanes[f.reviewer] && lanes[f.reviewer].name) || f.reviewer,
         title: f.title,
-        disposition: f.disposition ? f.disposition.toLowerCase() : "open"
+        disposition: f.disposition ? f.disposition.toLowerCase() : "open",
+        positions: Object.entries(f.positions || {}).map(([id, p]) => ({ name: (lanes[id] && lanes[id].name) || id, position: String(p.position).toLowerCase(), why: p.why || "" })),
+        why: f.why || ""
       }))
     };
   });
@@ -192,6 +194,120 @@ export function pickRun(runs) {
   return (active.length ? newest(active) : newest(runs)).id;
 }
 
-export function storySections() { throw new Error("not implemented"); }
-export function laneStages() { throw new Error("not implemented"); }
-export function activityItems() { throw new Error("not implemented"); }
+// ---- The story: what was proposed, argued and agreed ----------------------
+
+const laneName = (state, id) => (state.lanes && state.lanes[id] && state.lanes[id].name) || (id ? titleCase(id) : null);
+const SOURCE_NAMES = { both: "Both", new: "New" };
+
+export function storySections(state) {
+  const story = state.story;
+  if (!story) return [];
+  const ids = Object.keys(state.lanes || {});
+  const out = [];
+  const drafts = story.drafts || {};
+  if (Object.keys(drafts).length) {
+    out.push({
+      kind: "approaches",
+      title: "Approaches",
+      lanes: ids.map((id) => ({
+        id, name: laneName(state, id),
+        approach: drafts[id] ? drafts[id].approach || null : null,
+        choices: drafts[id] ? drafts[id].choices || [] : [],
+        weakSpots: drafts[id] ? drafts[id].weakSpots || [] : []
+      }))
+    });
+  }
+  const critiques = story.critiques || {};
+  if (Object.keys(critiques).length) {
+    out.push({
+      kind: "debate",
+      title: "Debate",
+      lanes: ids.map((id) => {
+        const c = critiques[id];
+        return {
+          id, name: laneName(state, id),
+          peerBetter: c ? c.peerBetter || [] : [],
+          mineBetter: c ? c.mineBetter || [] : [],
+          middleRoad: c ? c.middleRoad || null : null,
+          base: c && c.base ? laneName(state, c.base) : null
+        };
+      })
+    });
+  }
+  const sel = story.selection;
+  if (sel) {
+    const integrator = laneName(state, sel.integrator);
+    const converge = story.converge || {};
+    out.push({
+      kind: "agreement",
+      title: "Agreement",
+      integrator,
+      how: sel.decidedBy === "arbiter" ? "They disagreed; the arbiter chose " + integrator : "Both chose " + integrator,
+      reasons: ids.filter((id) => sel.reasons && sel.reasons[id]).map((id) => ({
+        name: laneName(state, id), vote: converge[id] && converge[id].vote ? laneName(state, converge[id].vote) : null, why: sel.reasons[id]
+      })),
+      arbiter: sel.arbiter || null,
+      concessions: ids.filter((id) => converge[id]).map((id) => ({
+        name: laneName(state, id), conceded: converge[id].concessions || [], holding: converge[id].holding || []
+      })),
+      plan: ((story.plan && story.plan.items) || []).map((i) => ({ item: i.item, source: SOURCE_NAMES[i.source] || laneName(state, i.source) }))
+    });
+  }
+  return out;
+}
+
+// ---- The lane viewer --------------------------------------------------------
+
+function stageRank(key) {
+  let m;
+  if (key.startsWith("draft-")) return 1;
+  if (key.startsWith("critique-")) return 2;
+  if (key.startsWith("converge-")) return 3;
+  if (key === "integrate") return 4;
+  if ((m = /^r(\d+)-(review|respond)-/.exec(key))) return 10 * Number(m[1]) + (m[2] === "review" ? 1 : 2);
+  if ((m = /^r(\d+)-fix$/.exec(key))) return 10 * Number(m[1]) + 3;
+  if (key === "signoff") return 100;
+  return null;
+}
+
+function stageLabel(key) {
+  let m;
+  if (key.startsWith("draft-")) return "Draft";
+  if (key.startsWith("critique-")) return "Critique";
+  if (key.startsWith("converge-")) return "Converge";
+  if (key === "integrate") return "Integrate";
+  if ((m = /^r(\d+)-(review|respond)-/.exec(key))) return (m[2] === "review" ? "Review " : "Respond ") + m[1];
+  if ((m = /^r(\d+)-fix$/.exec(key))) return "Fix " + m[1];
+  return "Sign-off";
+}
+
+export function laneStages(state, laneId) {
+  const out = [];
+  for (const [key, r] of Object.entries(state.results || {})) {
+    if (r.lane === laneId && stageRank(key) !== null) out.push({ key, label: stageLabel(key), state: r.ok ? "done" : "failed", file: r.file || null });
+  }
+  for (const [key, r] of Object.entries(state.running || {})) {
+    if (r.lane === laneId && stageRank(key) !== null && !out.some((s) => s.key === key)) out.push({ key, label: stageLabel(key), state: "running", file: null });
+  }
+  return out.sort((a, b) => stageRank(a.key) - stageRank(b.key));
+}
+
+export function activityItems(text) {
+  const out = [];
+  const tools = {};
+  for (const line of String(text || "").split("\n")) {
+    let e;
+    try { e = JSON.parse(line); } catch { continue; }
+    if (!e || typeof e !== "object") continue;
+    if (e.kind === "tool") {
+      const item = { kind: "tool", tool: e.tool, text: e.text, status: "running", output: "", ms: null };
+      tools[e.id] = item;
+      out.push(item);
+    } else if (e.kind === "tool_end" && tools[e.id]) {
+      Object.assign(tools[e.id], { status: e.ok ? "ok" : "failed", output: e.text || "", ms: typeof e.ms === "number" ? e.ms : null });
+    } else if (e.kind === "text" || e.kind === "error") {
+      out.push({ kind: e.kind, text: e.text });
+    }
+  }
+  return out;
+}

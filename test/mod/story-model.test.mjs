@@ -121,3 +121,11 @@ test("activityItems pairs each tool call with its result and keeps text and erro
     { kind: "error", text: "overloaded" }
   ]);
 });
+
+test("a tool that finishes with no output still counts as finished", () => {
+  const lines = [
+    { kind: "tool", id: "a", tool: "bash", text: "git add ." },
+    { kind: "tool_end", id: "a", ok: true, text: "" }
+  ].map((l) => JSON.stringify(l)).join("\n");
+  assert.equal(activityItems(lines)[0].status, "ok");
+});
