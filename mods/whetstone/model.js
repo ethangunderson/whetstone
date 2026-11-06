@@ -92,7 +92,8 @@ export function laneCards(state, now) {
       status,
       detail: working && lane.since ? elapsed(now - Date.parse(lane.since)) : "",
       model: shortModel(lane.model),
-      harness: lane.harness
+      harness: lane.harness,
+      terminal: lane.terminal || null
     };
   });
 }

@@ -15,7 +15,7 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView } from "gpui-base";
-import { exec, home, appHome, theme, run, notify, readTextFile, watchFolder, nextCommand, props, panes, shared, setShared } from "herdr";
+import { exec, home, appHome, theme, run, notify, readTextFile, watchFolder, nextCommand, props, panes, shared, setShared, terminals } from "herdr";
 import * as fs from "fs/promises";
 import {
   isActive, runHeader, statusLine, steps, laneCards, decision, stats, rounds, history, actions, pickRun, parseEvents,
@@ -280,6 +280,11 @@ export default class Whetstone extends View {
         solid(t, "ws-report", "Open report", (cx) => this.act("report", cx)))));
   }
 
+  // A lane's terminal, if it is still running in Herdr.
+  liveTerminal(address) {
+    return address && terminals().some((x) => x.address === address && x.state === "live") ? address : null;
+  }
+
   laneCard(t, lane) {
     const o = tones(t);
     const tone = { working: o.working, "needs you": o.attention, failed: o.failed, done: o.done, idle: o.idle }[lane.status];
@@ -288,11 +293,20 @@ export default class Whetstone extends View {
       .border_color(active ? tint(tone, 0.55) : t.border)
       .when(active, (c) => c.bg(tint(tone, 0.05)))
       .cursor_pointer().hover((s) => s.bg(t.hover))
-      .tooltip(`Show ${lane.name}'s output`)
-      .on_click((_e, cx) => { cx.stop_propagation(); this.openLane(lane.id); })
+      .tooltip(this.liveTerminal(lane.terminal) ? `Go to ${lane.name}'s terminal` : `Show ${lane.name}'s replies`)
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        const live = this.liveTerminal(lane.terminal);
+        if (live) run("agent.focus", { terminal: live });
+        else this.openLane(lane.id);
+      })
       .child(h_flex().items_center()
         .child(div().flex_1().text_size(11).text_color(t.dim).child(lane.role))
-        .child(icon("chevron-right", t.dim, 12)))
+        .child(h_flex().id(`ws-lane-${lane.id}-replies`).gap(2).items_center().px(4).rounded(4).cursor_pointer()
+          .text_size(11).text_color(t.dim).hover((s) => s.text_color(t.foreground).bg(t.raised))
+          .on_click((_e, cx) => { cx.stop_propagation(); this.openLane(lane.id); })
+          .child(div().child("Replies"))
+          .child(icon("chevron-right", t.dim, 11))))
       .child(h_flex().gap(8).items_center()
         .child(lane.status === "working" ? spinner(tone) : dot(tone, 9))
         .child(div().flex_1().min_w(0).truncate().text_size(14).font_semibold().child(lane.name))
@@ -494,6 +508,7 @@ export default class Whetstone extends View {
         .child(div().flex_none().text_size(12).text_color(t.muted).child(`${c.role} · ${c.status}`))
         .child(div().flex_1().min_w(0).truncate().font_family(MONO).text_size(11).text_color(t.dim).child(c.model)))
       .when(!c, (el) => el.child(div().flex_1()))
+      .when(Boolean(c && this.liveTerminal(c.terminal)), (el) => el.child(ghost(t, "ln-terminal", "Terminal", () => run("agent.focus", { terminal: c.terminal }))))
       .child(h_flex().flex_none().p(2).gap(2).rounded(8).bg(t.raised)
         .child(segment("reply", "Reply"))
         .child(segment("activity", "Activity")));
@@ -523,6 +538,12 @@ export default class Whetstone extends View {
   activityList(t, l) {
     const o = tones(t);
     if (!l.activity.length) {
+      const live = l.card && this.liveTerminal(l.card.terminal);
+      if (live) {
+        return v_flex().gap(8).items_start()
+          .child(div().text_size(12.5).text_color(t.dim).child(`${l.card.name} runs live in Herdr; its terminal shows what it's doing.`))
+          .child(solid(t, "ln-go-terminal", "Go to terminal", () => run("agent.focus", { terminal: live })));
+      }
       return div().text_size(12.5).text_color(t.dim).child(l.stage && l.stage.state === "running" ? "Starting…" : "No activity was recorded for this stage.");
     }
     return v_flex().gap(10).children(l.activity.map((a, i) => {

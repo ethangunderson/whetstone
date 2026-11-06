@@ -75,7 +75,9 @@ test("steps mark done, current and later", () => {
 
 test("lane cards show role, a plain status, model and how long it has been working", () => {
   const [claude, codex] = laneCards(state(), NOW);
-  assert.deepEqual(claude, { id: "claude", name: "Claude", role: "Writer", status: "working", detail: "4m", model: "claude-fable-5-1 · high", harness: "pi" });
+  assert.deepEqual(claude, { id: "claude", name: "Claude", role: "Writer", status: "working", detail: "4m", model: "claude-fable-5-1 · high", harness: "pi", terminal: null });
+  const live = laneCards(state({ lanes: { ...state().lanes, claude: { ...state().lanes.claude, terminal: "t14" } } }), NOW)[0];
+  assert.equal(live.terminal, "t14", "a live lane's terminal, for focusing it");
   assert.equal(codex.status, "idle", "a lane that finished its stage waits for the other");
   assert.equal(codex.detail, "");
   const integrating = laneCards(state({ step: 4, lanes: { ...state().lanes, claude: { ...state().lanes.claude, stage: "integrate" } } }), NOW)[0];
