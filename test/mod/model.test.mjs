@@ -174,3 +174,14 @@ test("pickRun prefers the newest active run, else the newest", () => {
   assert.equal(pickRun(runs.filter((r) => r.id === "a")), "a");
   assert.equal(pickRun([]), null);
 });
+
+test("pickRun keeps a pinned run until a newer run starts", () => {
+  const runs = [
+    { id: "old", state: { status: "done", startedAt: "2026-11-05T10:00:00Z" } },
+    { id: "mid", state: { status: "done", startedAt: "2026-11-05T11:00:00Z" } }
+  ];
+  assert.equal(pickRun(runs, { id: "old", at: "2026-11-05T12:00:00Z" }), "old", "pinned");
+  const later = [...runs, { id: "new", state: { status: "running", startedAt: "2026-11-05T13:00:00Z" } }];
+  assert.equal(pickRun(later, { id: "old", at: "2026-11-05T12:00:00Z" }), "new", "a run started after the pin takes over");
+  assert.equal(pickRun(runs, { id: "gone", at: "2026-11-05T12:00:00Z" }), "mid", "a pin to a deleted run is ignored");
+});

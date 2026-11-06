@@ -24,6 +24,7 @@ import {
 import { MONO, tint, json, tones, icon, spinner, dot, label, card, pill, ghost, solid, points } from "./ui.js";
 
 const MIN_RELOAD_MS = 800;
+const LOAD_LIMIT_MS = 15_000;
 const LOG = 30;
 const VIEWER = "whetstone.viewer";
 
@@ -98,12 +99,18 @@ export default class Whetstone extends View {
     this.loading = true;
     this.lastLoad = Date.now();
     cx.spawn(async (cx) => {
+      // A load that never settles would leave `loading` set and freeze the
+      // panel (seen once); give up after LOAD_LIMIT_MS and say where it was.
+      this.step = "starting";
+      let timer;
+      const limit = new Promise((_, reject) => { timer = cx.timer.after(LOAD_LIMIT_MS, () => reject(new Error(`loading stalled at: ${this.step}`))); });
       try {
-        await (this.mode === "lane" ? this.loadLane() : this.load());
+        await Promise.race([this.mode === "lane" ? this.loadLane() : this.load(), limit]);
         this.error = null;
       } catch (e) {
         this.error = String(e?.message ?? e);
       }
+      timer?.cancel?.();
       this.loading = false;
       cx.notify();
     });
@@ -116,22 +123,25 @@ export default class Whetstone extends View {
 
   async load() {
     let names = [];
+    this.step = "listing runs";
     try { names = await fs.readdir(this.root); } catch { names = []; }
     const runs = [];
     for (const name of names) {
       const id = typeof name === "string" ? name : name.name;
+      this.step = `reading ${id}`;
       const state = json(await readTextFile(`${this.root}/${id}/state.json`));
       if (state) runs.push({ id, state });
     }
     runs.sort((a, b) => String(b.state.startedAt ?? "").localeCompare(String(a.state.startedAt ?? "")));
     this.runs = runs;
-    const id = this.pinned && runs.some((r) => r.id === this.pinned) ? this.pinned : pickRun(runs);
+    const id = pickRun(runs, this.pinned);
     if (!id) { this.view = null; return; }
     const { state } = runs.find((r) => r.id === id);
     const dir = `${this.root}/${id}`;
     const control = json(await readTextFile(`${dir}/control.json`)) ?? {};
     const events = parseEvents((await readTextFile(`${dir}/events.jsonl`)) ?? "");
     let alive = false;
+    this.step = "checking the engine";
     if (isActive(state) && state.pid) {
       try { alive = (await exec("kill", ["-0", String(state.pid)])).code === 0; } catch { alive = false; }
     }
@@ -156,7 +166,7 @@ export default class Whetstone extends View {
   nextRun(cx) {
     if (this.runs.length < 2 || !this.view) return;
     const i = this.runs.findIndex((r) => r.id === this.view.id);
-    this.pinned = this.runs[(i + 1) % this.runs.length].id;
+    this.pinned = { id: this.runs[(i + 1) % this.runs.length].id, at: new Date().toISOString() };
     this.reloadNow(cx);
   }
 

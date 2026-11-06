@@ -188,8 +188,10 @@ export function actions(state, control, alive) {
   }
 }
 
-export function pickRun(runs) {
+// pin: { id, at } from clicking through runs; it holds until a run starts after it.
+export function pickRun(runs, pin) {
   if (!runs.length) return null;
+  if (pin && runs.some((r) => r.id === pin.id) && !runs.some((r) => String(r.state.startedAt || "") > String(pin.at))) return pin.id;
   const newest = (list) => list.slice().sort((a, b) => String(b.state.startedAt || "").localeCompare(String(a.state.startedAt || "")))[0];
   const active = runs.filter((r) => isActive(r.state));
   return (active.length ? newest(active) : newest(runs)).id;
