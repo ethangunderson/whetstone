@@ -203,6 +203,26 @@ No npm dependencies in the engine (Node built-ins only), so it runs anywhere
   so prompts say where to `cd`; pi exits 0 on model errors (check
   `stopReason`).
 
+## Status update (2026-11-06): live lanes
+
+- Default harness is now `herdr`: each lane is a live, interactive pi agent
+  in its own Herdr Core terminal. `whetstone run` starts the engine in its own
+  terminal (`ws-<hash>-engine`) and returns; lanes report by writing a reply
+  file and `hc send <engine> "done <stage> <token>"`. Reviewers and helpers
+  get a terminal per call; everything closes when the run ends.
+- Pause now and stop use `hc interrupt`; a lane that goes quiet is nudged
+  once; a done without its file gets one reminder.
+- Converge includes a direct exchange (`hc send <peer> "[peer] …"`, at most
+  2 messages each). Verified for real: lanes negotiated and both converged on
+  the result (padstart run).
+- Pane: lane cards jump to the lane's live terminal; "Replies" opens the
+  viewer; the story cards replace the history.
+- The headless `pi` harness stays for running without Herdr.
+- Open: Claude Code / Codex as live agents; lanes end with the engine (no
+  reattach after a crash, restart begins new lanes with a "context lost"
+  note); tabs get numeric names; lanes aren't nested under the engine in the
+  Agents list (the engine isn't an agent).
+
 ## Phases (TDD throughout)
 
 1. **Engine core with pi stubbed.** Port the stage logic. Tests drive full
