@@ -185,3 +185,9 @@ test("pickRun keeps a pinned run until a newer run starts", () => {
   assert.equal(pickRun(later, { id: "old", at: "2026-11-05T12:00:00Z" }), "new", "a run started after the pin takes over");
   assert.equal(pickRun(runs, { id: "gone", at: "2026-11-05T12:00:00Z" }), "mid", "a pin to a deleted run is ignored");
 });
+
+test("a lane that hit an error says so on its card", () => {
+  const card = laneCards(state({ lanes: { ...state().lanes, codex: { ...state().lanes.codex, status: "error", since: ago(60_000) } } }), NOW)[1];
+  assert.equal(card.status, "error");
+  assert.equal(card.detail, "1m", "still counting: it is retrying");
+});

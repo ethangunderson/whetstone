@@ -53,7 +53,10 @@ const LOST = "[whetstone] Your earlier conversation is gone (the run was restart
 // A "done" line, with or without hc's sender tag around it.
 const bare = (line) => String(line).replace(/<[^>]*>/g, "").trim();
 
-export function createHerdrHarness({ hc, inbox, engine, path, bins = {}, agent = "pi", labels = [], pollMs = 1000, nudgeAfterMs = 120_000, timeoutMs = 3 * 60 * 60_000 }) {
+// pollMs: how often a waiting stage checks control.json (pause, stop), a local
+// file. Lanes themselves are never polled: their news comes from
+// `hc wait --children any` (see watch), as hc's guide asks.
+export function createHerdrHarness({ hc, inbox, engine, path, bins = {}, agent = "pi", labels = [], pollMs = 1000, waitSeconds = 60, nudgeAfterMs = 120_000, timeoutMs = 3 * 60 * 60_000 }) {
   const started = new Set();
   const args = AGENTS[agent];
   if (!args) throw new Error("the herdr harness doesn't know how to start agent " + agent);
@@ -67,6 +70,39 @@ export function createHerdrHarness({ hc, inbox, engine, path, bins = {}, agent =
   async function interrupt(name) {
     try { await hc(["interrupt", "--json", name]); } catch { /* already idle or gone */ }
   }
+  async function screenTail(name) {
+    try { return (await hc(["read", "--lines", "15", name])).trim().split("\n").slice(-6).join("\n"); } catch { return "(couldn't read its screen)"; }
+  }
+
+  // One `hc wait --children any` at a time, shared by every waiting stage; each
+  // child's news (a turn ended, it blocked, it hit an error, it exited) goes to
+  // whoever watches that terminal. A timeout lists the children's current
+  // states, which aren't news, so it is ignored.
+  const watchers = new Map();
+  let watching = false;
+  async function watchLoop() {
+    watching = true;
+    while (watchers.size) {
+      let out;
+      try {
+        out = JSON.parse(await hc(["wait", "--children", "any", "--json", "--timeout", String(waitSeconds), engine]));
+      } catch {
+        await new Promise((r) => setTimeout(r, pollMs));
+        continue;
+      }
+      if (out.reason === "timeout") continue;
+      for (const news of out.children || []) {
+        const handler = watchers.get(news.terminal);
+        if (handler) handler(news);
+      }
+    }
+    watching = false;
+  }
+  function watch(terminal, handler) {
+    watchers.set(terminal, handler);
+    if (!watching) watchLoop();
+    return () => { if (watchers.get(terminal) === handler) watchers.delete(terminal); };
+  }
 
   async function end(name) {
     try { await hc(["kill", name]); } catch { /* gone */ }
@@ -78,7 +114,7 @@ export function createHerdrHarness({ hc, inbox, engine, path, bins = {}, agent =
     // A finished terminal from an earlier attempt can still hold the name.
     try { await hc(["rm", name]); } catch { /* not there */ }
     const argv = ["/usr/bin/env", "PATH=" + path, bins[agent] || agent, ...args(req), message];
-    const out = await hc(["run", "--bg", "--json", "--name", name, "--cwd", req.cwd,
+    const out = await hc(["run", "--bg", "--json", "--no-notify", "--name", name, "--cwd", req.cwd,
       ...labels.flatMap((l) => ["--label", l]), "--", ...argv]);
     started.add(name);
     return JSON.parse(out).address;
@@ -86,56 +122,87 @@ export function createHerdrHarness({ hc, inbox, engine, path, bins = {}, agent =
 
   async function waitDone(req, name, terminal, file, doneLine, protocol) {
     const fail = (error) => ({ ok: false, text: "", sessionId: name, terminal, error });
+    const setStatus = async (status) => { if (req.onStatus) await req.onStatus(status); };
     const deadline = Date.now() + timeoutMs;
-    let quietSince = null;
+    const news = [];
+    const unwatch = watch(terminal, (item) => news.push(item));
+    let lastNews = Date.now();
     let nudged = false;
     let paused = false;
     let reminded = false;
-    for (;;) {
-      const line = await inbox.next((l) => bare(l) === doneLine, pollMs);
-      if (line) {
-        try {
-          return { ok: true, text: await readFile(file, "utf8"), sessionId: name, terminal, error: null };
-        } catch {
-          // Seen for real: the write failed but the shell still ran the send.
-          if (reminded) return fail("the lane reported done but its reply file is missing: " + file);
-          reminded = true;
-          quietSince = null;
-          await send(name, `[whetstone] I got your done message, but ${file} doesn't exist. Write it, then send done again.\n\n` + protocol);
+    let blocked = false;
+    let errors = 0;
+    try {
+      for (;;) {
+        const line = await inbox.next((l) => bare(l) === doneLine, pollMs);
+        if (line) {
+          try {
+            const text = await readFile(file, "utf8");
+            if (blocked) await setStatus("working");
+            return { ok: true, text, sessionId: name, terminal, error: null };
+          } catch {
+            // Seen for real: the write failed but the shell still ran the send.
+            if (reminded) return fail("the lane reported done but its reply file is missing: " + file);
+            reminded = true;
+            lastNews = Date.now();
+            await send(name, `[whetstone] I got your done message, but ${file} doesn't exist. Write it, then send done again.\n\n` + protocol);
+            continue;
+          }
+        }
+
+        while (news.length) {
+          const item = news.shift();
+          lastNews = Date.now();
+          if (item.reason === "exit") return fail("the lane exited before reporting");
+          if (item.status === "blocked") {
+            // A permission prompt or a question in its terminal: a person's job, not a nudge.
+            if (!blocked) { blocked = true; await setStatus("blocked"); }
+            continue;
+          }
+          if (blocked) { blocked = false; await setStatus("working"); }
+          if (item.status === "error") {
+            errors += 1;
+            await setStatus("error");
+            if (errors > 1) return fail("the lane hit an error twice; its screen ends with:\n" + await screenTail(name));
+            await send(name, "[whetstone] Your last turn ended with an error. Try the step again.\n\n" + protocol);
+            await setStatus("working");
+          }
+          // Otherwise a turn ended. A lane may end a turn on purpose (waiting
+          // for its peer), so that alone isn't failure; see the quiet check.
+        }
+
+        const control = req.control ? (await req.control()) || {} : {};
+        if (control.stop) {
+          await interrupt(name);
+          return fail("stopped by the operator");
+        }
+        if (control.pause === "now") {
+          if (!paused) await interrupt(name);
+          paused = true;
           continue;
         }
-      }
-      const control = req.control ? (await req.control()) || {} : {};
-      if (control.stop) {
-        await interrupt(name);
-        return fail("stopped by the operator");
-      }
-      if (control.pause === "now") {
-        if (!paused) await interrupt(name);
-        paused = true;
-        quietSince = null;
-        continue;
-      }
-      if (paused) {
-        paused = false;
-        await send(name, "[whetstone] You were paused. Continue the step you were on.\n\n" + protocol);
-        continue;
-      }
-      const now = await info(name);
-      if (!now || now.state !== "live") return fail("the lane exited before reporting");
-      const status = now.status && now.status.state;
-      if (status === "working" || status === "blocked") {
-        quietSince = null;
-      } else {
-        quietSince ??= Date.now();
-        if (Date.now() - quietSince > nudgeAfterMs) {
-          if (nudged) return fail("the lane stopped without reporting");
-          nudged = true;
-          quietSince = null;
-          await send(name, "[whetstone] You haven't reported this step yet.\n\n" + protocol);
+        if (paused) {
+          paused = false;
+          lastNews = Date.now();
+          await send(name, "[whetstone] You were paused. Continue the step you were on.\n\n" + protocol);
+          continue;
         }
+
+        // Quiet for a while: one look at the lane (not a poll), then a nudge.
+        if (!blocked && Date.now() - lastNews > nudgeAfterMs) {
+          lastNews = Date.now();
+          const now = await info(name);
+          if (!now || now.state !== "live") return fail("the lane exited before reporting");
+          if (!(now.status && now.status.state === "working")) {
+            if (nudged) return fail("the lane stopped without reporting");
+            nudged = true;
+            await send(name, "[whetstone] You haven't reported this step yet.\n\n" + protocol);
+          }
+        }
+        if (Date.now() > deadline) return fail("timed out waiting for the lane");
       }
-      if (Date.now() > deadline) return fail("timed out waiting for the lane");
+    } finally {
+      unwatch();
     }
   }
 

@@ -232,7 +232,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         const r = await harness.run({
           key: req.key, lane: req.lane, role: req.role, session: req.session, resume: req.resume,
           cwd: req.cwd, system: req.system, model, effort, readOnly: req.readOnly, prompt: req.prompt,
-          runId: st.id, runDir: store.dir, control: () => store.readControl(), onTerminal: req.onTerminal,
+          runId: st.id, runDir: store.dir, control: () => store.readControl(), onTerminal: req.onTerminal, onStatus: req.onStatus,
           sessionDir: join(store.dir, "sessions"), logFile: join(store.dir, "logs", req.key + ".jsonl"),
           activityFile: join(store.dir, "activity", req.key + ".jsonl")
         });
@@ -264,7 +264,13 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       });
       // Live lanes report their terminal as soon as it starts, so the pane can show it.
       const onTerminal = tracked ? (address) => store.update((s) => { s.lanes[o.lane].terminal = address; }) : undefined;
-      const base = { key, lane: o.lane, role: o.role, spec: o.spec, cwd: o.cwd, system, readOnly, onTerminal };
+      // A live lane can block (a permission prompt, a question in its terminal) or hit an error.
+      const onStatus = async (status) => {
+        if (tracked) await store.update((s) => { s.lanes[o.lane].status = status; });
+        if (status === "blocked") await progress(name(o.lane) + " needs you in its terminal (a permission prompt or a question)");
+        if (status === "error") await progress(name(o.lane) + " hit an error; asking it to try again");
+      };
+      const base = { key, lane: o.lane, role: o.role, spec: o.spec, cwd: o.cwd, system, readOnly, onTerminal, onStatus };
       let res = await invoke({ ...base, session, resume: Boolean(o.resume), prompt: o.prompt });
       let sid = res.sessionId;
       let question;

@@ -529,3 +529,25 @@ test("the run closes its harnesses when it ends, however it ends", async () => {
   await assert.rejects(s.run(), /boom/);
   assert.equal(s.fake.closed.length, 1);
 });
+
+test("a lane blocked in its terminal shows as needing you, and recovers", async () => {
+  let s;
+  const seen = {};
+  s = await setup({
+    ...agree, reviews: [{ claude: clean, codex: clean }], args: { difficulty: "easy" },
+    override: { "draft-claude": async (req) => {
+      await req.onStatus("blocked");
+      seen.blocked = s.store.state.lanes.claude.status;
+      await req.onStatus("error");
+      seen.error = s.store.state.lanes.claude.status;
+      await req.onStatus("working");
+      seen.working = s.store.state.lanes.claude.status;
+      return { text: "drafted" };
+    } }
+  });
+  await s.run();
+  assert.deepEqual(seen, { blocked: "blocked", error: "error", working: "working" });
+  const log = await events(s.store);
+  assert.ok(log.some((e) => /Claude needs you in its terminal/.test(e)), log.join("\n"));
+  assert.ok(log.some((e) => /Claude hit an error/.test(e)));
+});

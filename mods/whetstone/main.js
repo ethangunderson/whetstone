@@ -297,7 +297,7 @@ export default class Whetstone extends View {
 
   laneCard(t, lane) {
     const o = tones(t);
-    const tone = { working: o.working, "needs you": o.attention, failed: o.failed, done: o.done, idle: o.idle }[lane.status];
+    const tone = { working: o.working, "needs you": o.attention, failed: o.failed, error: o.failed, done: o.done, idle: o.idle }[lane.status];
     const active = lane.status === "working" || lane.status === "needs you";
     return v_flex().id(`ws-lane-${lane.id}`).flex_1().min_w(0).p(12).gap(6).rounded(10).border_1()
       .border_color(active ? tint(tone, 0.55) : t.border)
@@ -503,7 +503,7 @@ export default class Whetstone extends View {
   laneHeader(t, l) {
     const o = tones(t);
     const c = l && l.card;
-    const tone = c ? { working: o.working, "needs you": o.attention, failed: o.failed, done: o.done, idle: o.idle }[c.status] : t.dim;
+    const tone = c ? { working: o.working, "needs you": o.attention, failed: o.failed, error: o.failed, done: o.done, idle: o.idle }[c.status] : t.dim;
     const tab = this.currentTab(l);
     const segment = (key, text) => div().id(`ln-tab-${key}`).h(24).px(10).flex().items_center().rounded(6).cursor_pointer()
       .text_size(12).font_medium()

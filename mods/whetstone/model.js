@@ -83,8 +83,9 @@ export function laneCards(state, now) {
     if (lane.status === "working") status = "working";
     else if (lane.status === "blocked") status = "needs you";
     else if (lane.status === "failed") status = "failed";
+    else if (lane.status === "error") status = "error";
     else if (state.status === "done") status = "done";
-    const working = lane.status === "working" || lane.status === "blocked";
+    const working = ["working", "blocked", "error"].includes(lane.status);
     return {
       id,
       name: lane.name,
