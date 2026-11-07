@@ -12,6 +12,12 @@
   },
   "scripts": {
     "test": "node --test --test-timeout=20000 'engine/test/*.test.mjs' 'test/**/*.test.mjs'",
-    "install-mod": "scripts/install-mod.sh"
+    "install-mod": "scripts/install-mod.sh",
+    "format": "biome format --write",
+    "lint": "biome check",
+    "check": "npm test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.6"
   }
 }
