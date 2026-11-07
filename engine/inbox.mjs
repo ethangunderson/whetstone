@@ -3,6 +3,7 @@
 // lines stay for other waiters.
 import { createInterface } from "node:readline";
 
+/** @param {{ stream?: NodeJS.ReadableStream }} [options] */
 export function createInbox({ stream } = {}) {
   const lines = [];
   const waiters = [];

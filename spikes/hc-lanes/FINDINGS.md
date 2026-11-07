@@ -18,18 +18,18 @@ The full run (two drafts, a direct critique exchange, four valid result
 files) took 44 seconds with no fix-ups needed. Timeline in
 `/tmp/ws-spike-run/timeline.jsonl` (not kept).
 
-| Question | Finding |
-|---|---|
-| Can a plain program receive `hc send`? | Yes: each message is one stdin line. Messages to a plain program arrive **untagged** (`done draft claude`), so lanes name themselves. |
-| Do messages between agents carry the sender? | Yes: `<hc from="t15 ws-spike-codex">[peer] …</hc>`. |
-| Do agents act on engine and peer messages? | Yes, when the first task says which prefixes to expect (`[whetstone]`, `[peer]`). Claude checked the message's origin before trusting it, so the up-front explanation matters. |
-| Can lanes run `hc` from their shell? | Yes, once they have the right PATH (below). |
-| Results as files plus a "done" message | Both lanes wrote valid JSON on the first try; the validate-and-ask-to-fix path never triggered. |
-| Status | `hc get` reports `app: pi` with live `working` / `idle` / `done` and turn counts, even under an `env` wrapper. |
-| Sending to a busy lane | `hc send` returns immediately; pi queues the message and delivers it with the next turn. |
-| Pause now | `hc interrupt` presses Esc: the running command aborts, the lane goes `idle` with its context intact. A later "continue" message resumed correctly and had the queued note too. |
-| `hc send --wait` | Returns when that turn ends (`reason: status`). Note a turn can end before the stage is done (e.g. a lane waiting for its peer's message), so the "done" message, not the turn, marks completion. |
-| Visibility | The lanes appear in the Agents sidebar nested under the engine; clicking one shows its real pi session. |
+| Question                                     | Finding                                                                                                                                                                                           |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Can a plain program receive `hc send`?       | Yes: each message is one stdin line. Messages to a plain program arrive **untagged** (`done draft claude`), so lanes name themselves.                                                             |
+| Do messages between agents carry the sender? | Yes: `<hc from="t15 ws-spike-codex">[peer] …</hc>`.                                                                                                                                               |
+| Do agents act on engine and peer messages?   | Yes, when the first task says which prefixes to expect (`[whetstone]`, `[peer]`). Claude checked the message's origin before trusting it, so the up-front explanation matters.                    |
+| Can lanes run `hc` from their shell?         | Yes, once they have the right PATH (below).                                                                                                                                                       |
+| Results as files plus a "done" message       | Both lanes wrote valid JSON on the first try; the validate-and-ask-to-fix path never triggered.                                                                                                   |
+| Status                                       | `hc get` reports `app: pi` with live `working` / `idle` / `done` and turn counts, even under an `env` wrapper.                                                                                    |
+| Sending to a busy lane                       | `hc send` returns immediately; pi queues the message and delivers it with the next turn.                                                                                                          |
+| Pause now                                    | `hc interrupt` presses Esc: the running command aborts, the lane goes `idle` with its context intact. A later "continue" message resumed correctly and had the queued note too.                   |
+| `hc send --wait`                             | Returns when that turn ends (`reason: status`). Note a turn can end before the stage is done (e.g. a lane waiting for its peer's message), so the "done" message, not the turn, marks completion. |
+| Visibility                                   | The lanes appear in the Agents sidebar nested under the engine; clicking one shows its real pi session.                                                                                           |
 
 ## Gotchas
 

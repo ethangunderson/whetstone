@@ -12,6 +12,17 @@
   },
   "scripts": {
     "test": "node --test --test-timeout=20000 'engine/test/*.test.mjs' 'test/**/*.test.mjs'",
-    "install-mod": "scripts/install-mod.sh"
+    "install-mod": "scripts/install-mod.sh",
+    "format": "biome format --write",
+    "lint": "biome check --error-on-warnings",
+    "check": "npm run -s lint && npm run -s shellcheck && npm run -s typecheck && npm test",
+    "typecheck": "tsc -p .",
+    "shellcheck": "shellcheck -x scripts/*.sh .githooks/*",
+    "prepare": "git config core.hooksPath .githooks && git config blame.ignoreRevsFile .git-blame-ignore-revs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.6",
+    "@types/node": "22.20.5",
+    "typescript": "7.0.2"
   }
 }

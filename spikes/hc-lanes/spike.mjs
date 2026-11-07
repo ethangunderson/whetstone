@@ -10,9 +10,9 @@
 
 import { execFile } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
-import { join } from "node:path";
 
 const sh = promisify(execFile);
 const [repo, runDir, space] = process.argv.slice(2);
@@ -20,7 +20,7 @@ mkdirSync(runDir, { recursive: true });
 const me = process.env.HC_TERMINAL_ID;
 const LANES = {
   claude: { name: "ws-spike-claude", model: "claude-bridge/claude-sonnet-5-5", thinking: "medium" },
-  codex: { name: "ws-spike-codex", model: "openai-codex/gpt-6-luna", thinking: "medium" }
+  codex: { name: "ws-spike-codex", model: "openai-codex/gpt-6-luna", thinking: "medium" },
 };
 const peerOf = { claude: "codex", codex: "claude" };
 const ENGINE = "ws-spike-engine";
@@ -28,7 +28,7 @@ const PI = process.env.WHETSTONE_PI || "pi";
 
 function log(kind, data = {}) {
   const entry = { at: new Date().toISOString(), kind, ...data };
-  appendFileSync(join(runDir, "timeline.jsonl"), JSON.stringify(entry) + "\n");
+  appendFileSync(join(runDir, "timeline.jsonl"), `${JSON.stringify(entry)}\n`);
   console.log(entry.at.slice(11, 19), kind, JSON.stringify(data).slice(0, 300));
 }
 
@@ -48,7 +48,7 @@ const waiters = [];
 createInterface({ input: process.stdin }).on("line", (line) => {
   log("inbox", { line });
   inbox.push(line);
-  waiters.splice(0).forEach((w) => w());
+  for (const w of waiters.splice(0)) w();
 });
 function nextMatching(re, timeoutMs) {
   return new Promise((resolve) => {
@@ -66,11 +66,26 @@ function nextMatching(re, timeoutMs) {
 
 // ---- Result files -----------------------------------------------------------
 function readJson(path) {
-  try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; }
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
 }
 const valid = {
-  draft: (v) => v && typeof v.approach === "string" && Array.isArray(v.choices) && Array.isArray(v.weakSpots) && typeof v.commit === "string",
-  debate: (v) => v && Array.isArray(v.peerBetter) && Array.isArray(v.mineBetter) && typeof v.middleRoad === "string" && typeof v.peerSaid === "string" && ["claude", "codex"].includes(v.base)
+  draft: (v) =>
+    v &&
+    typeof v.approach === "string" &&
+    Array.isArray(v.choices) &&
+    Array.isArray(v.weakSpots) &&
+    typeof v.commit === "string",
+  debate: (v) =>
+    v &&
+    Array.isArray(v.peerBetter) &&
+    Array.isArray(v.mineBetter) &&
+    typeof v.middleRoad === "string" &&
+    typeof v.peerSaid === "string" &&
+    ["claude", "codex"].includes(v.base),
 };
 
 async function collect(stage, lane, timeoutMs) {
@@ -78,12 +93,23 @@ async function collect(stage, lane, timeoutMs) {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const msg = await nextMatching(new RegExp(`done ${stage} ${lane}\\b`), timeoutMs);
     const v = readJson(file);
-    log("collect", { stage, lane, attempt, gotMessage: Boolean(msg), fileExists: existsSync(file), valid: Boolean(valid[stage](v)) });
+    log("collect", {
+      stage,
+      lane,
+      attempt,
+      gotMessage: Boolean(msg),
+      fileExists: existsSync(file),
+      valid: Boolean(valid[stage](v)),
+    });
     if (valid[stage](v)) return v;
     const status = await hc("get", LANES[lane].name, "--json");
     log("lane-state", { lane, status: status && JSON.parse(status).status });
     if (attempt === 1) {
-      await hc("send", LANES[lane].name, `[whetstone] ${file} is missing or doesn't match the format I asked for. Rewrite it exactly in that format, then run: hc send ${ENGINE} "done ${stage} ${lane}"`);
+      await hc(
+        "send",
+        LANES[lane].name,
+        `[whetstone] ${file} is missing or doesn't match the format I asked for. Rewrite it exactly in that format, then run: hc send ${ENGINE} "done ${stage} ${lane}"`,
+      );
       log("asked-to-fix", { stage, lane });
     }
   }
@@ -91,7 +117,8 @@ async function collect(stage, lane, timeoutMs) {
 }
 
 // ---- Lanes --------------------------------------------------------------------
-const TASK = "Add a wordCount(text) function to text.mjs that counts words separated by any whitespace (empty or whitespace-only input is 0). Export it and test it.";
+const TASK =
+  "Add a wordCount(text) function to text.mjs that counts words separated by any whitespace (empty or whitespace-only input is 0). Export it and test it.";
 
 function draftTask(lane) {
   const wt = join(runDir, "wt", lane);
@@ -102,7 +129,7 @@ function draftTask(lane) {
     `When finished, write ${join(runDir, `draft-${lane}.json`)} containing exactly:`,
     `{"approach": "one or two sentences", "choices": ["key design choices"], "weakSpots": ["what you're least sure about"], "commit": "<sha>"}`,
     `Then run this shell command so the coordinator knows: hc send ${ENGINE} "done draft ${lane}"`,
-    "Do not start other agents. Messages starting with [whetstone] come from the coordinator; messages starting with [peer] come from the other lane."
+    "Do not start other agents. Messages starting with [whetstone] come from the coordinator; messages starting with [peer] come from the other lane.",
   ].join("\n");
 }
 
@@ -116,7 +143,7 @@ function debateTask(lane) {
     `3. Once you have its critique, write ${join(runDir, `debate-${lane}.json`)} containing exactly:`,
     `{"peerBetter": ["where its version is better"], "mineBetter": ["where yours is better"], "middleRoad": "one or two sentences", "peerSaid": "one sentence summary of its critique of you", "base": "claude" | "codex"}`,
     `4. Then run: hc send ${ENGINE} "done debate ${lane}"`,
-    "Don't edit any code in this step."
+    "Don't edit any code in this step.",
   ].join("\n");
 }
 
@@ -126,15 +153,41 @@ async function main() {
     await sh("git", ["-C", repo, "worktree", "add", "-q", "-b", `spike/${lane}`, join(runDir, "wt", lane), "HEAD"]);
   }
   for (const [lane, l] of Object.entries(LANES)) {
-    const out = await hc("run", "--bg", "--json", "--name", l.name, "--cwd", join(runDir, "wt", lane),
-      "--label", `herdr.space=${space}`, "--label", `whetstone=spike`,
+    const out = await hc(
+      "run",
+      "--bg",
+      "--json",
+      "--name",
+      l.name,
+      "--cwd",
+      join(runDir, "wt", lane),
+      "--label",
+      `herdr.space=${space}`,
+      "--label",
+      `whetstone=spike`,
       // The core's PATH is minimal: pass ours so pi, node, npm and hc resolve inside the lane.
-      "--", "/usr/bin/env", `PATH=${process.env.PATH}`, PI, "--model", l.model, "--thinking", l.thinking, "--tools", "read,grep,find,ls,bash,edit,write", "--no-skills", draftTask(lane));
+      "--",
+      "/usr/bin/env",
+      `PATH=${process.env.PATH}`,
+      PI,
+      "--model",
+      l.model,
+      "--thinking",
+      l.thinking,
+      "--tools",
+      "read,grep,find,ls,bash,edit,write",
+      "--no-skills",
+      draftTask(lane),
+    );
     log("lane-started", { lane, out: out && JSON.parse(out) });
   }
 
   const drafts = {};
-  await Promise.all(Object.keys(LANES).map(async (lane) => { drafts[lane] = await collect("draft", lane, 10 * 60_000); }));
+  await Promise.all(
+    Object.keys(LANES).map(async (lane) => {
+      drafts[lane] = await collect("draft", lane, 10 * 60_000);
+    }),
+  );
   log("drafts", { ok: Object.fromEntries(Object.entries(drafts).map(([k, v]) => [k, Boolean(v)])) });
   if (!drafts.claude || !drafts.codex) return log("abort", { why: "missing drafts" });
 
@@ -143,7 +196,11 @@ async function main() {
     log("debate-sent", { lane, out });
   }
   const debates = {};
-  await Promise.all(Object.keys(LANES).map(async (lane) => { debates[lane] = await collect("debate", lane, 10 * 60_000); }));
+  await Promise.all(
+    Object.keys(LANES).map(async (lane) => {
+      debates[lane] = await collect("debate", lane, 10 * 60_000);
+    }),
+  );
   log("debates", { debates });
 
   for (const lane of Object.keys(LANES)) {

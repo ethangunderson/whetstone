@@ -27,16 +27,16 @@ import { accessSync, constants, existsSync, realpathSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { DEFAULT_CONFIG, resolveConfig } from "./config.mjs";
-import { openStore, writeControl } from "./store.mjs";
-import { runWhetstone, slugify, STEPS } from "./run.mjs";
-import { gitWorkspace } from "./workspace.mjs";
-import { createPiHarness } from "./harness/pi.mjs";
 import { createHerdrHarness, terminalName } from "./harness/herdr.mjs";
+import { createPiHarness } from "./harness/pi.mjs";
 import { createInbox } from "./inbox.mjs";
 import { createLinearReader, issueSlug, issueTask } from "./linear.mjs";
+import { runWhetstone, STEPS, slugify } from "./run.mjs";
+import { openStore, writeControl } from "./store.mjs";
+import { gitWorkspace } from "./workspace.mjs";
 
 const HOME = process.env.WHETSTONE_HOME || join(homedir(), ".whetstone");
 const RUNS = join(HOME, "runs");
@@ -46,20 +46,38 @@ export function parseRunArgs(argv) {
   const out = {};
   const words = [];
   const value = (i, flag) => {
-    if (i >= argv.length) throw new Error(flag + " needs a value");
+    if (i >= argv.length) throw new Error(`${flag} needs a value`);
     return argv[i];
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a === "--") { words.push(...argv.slice(i + 1)); break; }
-    if (!a.startsWith("--")) { words.push(a); continue; }
+    if (a === "--") {
+      words.push(...argv.slice(i + 1));
+      break;
+    }
+    if (!a.startsWith("--")) {
+      words.push(a);
+      continue;
+    }
     switch (a) {
-      case "--repo": out.repo = value(++i, a); break;
-      case "--slug": out.slug = value(++i, a); break;
-      case "--base": out.baseRef = value(++i, a); break;
-      case "--isolation": out.isolation = value(++i, a); break;
-      case "--issue": out.issue = value(++i, a); break;
-      case "--notes": out.notes = value(++i, a); break;
+      case "--repo":
+        out.repo = value(++i, a);
+        break;
+      case "--slug":
+        out.slug = value(++i, a);
+        break;
+      case "--base":
+        out.baseRef = value(++i, a);
+        break;
+      case "--isolation":
+        out.isolation = value(++i, a);
+        break;
+      case "--issue":
+        out.issue = value(++i, a);
+        break;
+      case "--notes":
+        out.notes = value(++i, a);
+        break;
       case "--difficulty":
         out.difficulty = value(++i, a);
         if (!DIFFICULTIES.includes(out.difficulty)) throw new Error("--difficulty must be easy, medium or hard");
@@ -68,13 +86,21 @@ export function parseRunArgs(argv) {
         out.maxRounds = Number(value(++i, a));
         if (![1, 2].includes(out.maxRounds)) throw new Error("--rounds must be 1 or 2");
         break;
-      case "--fallback": out.fallback = true; break;
-      case "--no-fallback": out.fallback = false; break;
-      case "--step-mode": out.stepMode = true; break;
-      default: throw new Error("unknown option " + a);
+      case "--fallback":
+        out.fallback = true;
+        break;
+      case "--no-fallback":
+        out.fallback = false;
+        break;
+      case "--step-mode":
+        out.stepMode = true;
+        break;
+      default:
+        throw new Error(`unknown option ${a}`);
     }
   }
-  if (out.issue && words.length) throw new Error("pass either task text or --issue, not both (add instructions with --notes)");
+  if (out.issue && words.length)
+    throw new Error("pass either task text or --issue, not both (add instructions with --notes)");
   if (out.notes !== undefined && !out.issue) throw new Error("--notes requires --issue");
   if (out.issue) return out;
   if (!words.length) throw new Error("whetstone run needs a task");
@@ -95,7 +121,12 @@ async function hc(args) {
 // under Herdr Core, whose own PATH is minimal.
 function which(name) {
   for (const dir of String(process.env.PATH || "").split(":")) {
-    try { accessSync(join(dir, name), constants.X_OK); return join(dir, name); } catch { /* next */ }
+    try {
+      accessSync(join(dir, name), constants.X_OK);
+      return join(dir, name);
+    } catch {
+      /* next */
+    }
   }
   return name;
 }
@@ -103,7 +134,7 @@ function which(name) {
 // Lanes get no herdr.* labels: started from the engine's terminal, they are
 // its sub-agents and show nested under it, not as tabs of their own.
 export function laneLabels(state) {
-  return ["whetstone=" + state.id];
+  return [`whetstone=${state.id}`];
 }
 
 const usesHerdr = (config) => config.lanes.some((l) => l.harness === "herdr");
@@ -118,7 +149,7 @@ function harnesses(state) {
       engine: process.env.HC_TERMINAL_ID,
       path: process.env.PATH,
       bins: { pi: which("pi") },
-      labels: laneLabels(state)
+      labels: laneLabels(state),
     });
   }
   return all;
@@ -131,26 +162,56 @@ function harnesses(state) {
 async function launchEngine(store, args) {
   let space = null;
   if (process.env.HC_TERMINAL_ID) {
-    try { space = JSON.parse(await hc(["get", "--json", process.env.HC_TERMINAL_ID])).labels?.["herdr.space"] ?? null; } catch { /* not in Herdr */ }
+    try {
+      space = JSON.parse(await hc(["get", "--json", process.env.HC_TERMINAL_ID])).labels?.["herdr.space"] ?? null;
+    } catch {
+      /* not in Herdr */
+    }
   }
   const id = store.state.id;
-  const argv = ["/usr/bin/env", "PATH=" + process.env.PATH, "WHETSTONE_HOME=" + HOME, "WHETSTONE_ENGINE=" + id,
-    process.execPath, CLI_PATH, "__engine", id];
+  const argv = [
+    "/usr/bin/env",
+    `PATH=${process.env.PATH}`,
+    `WHETSTONE_HOME=${HOME}`,
+    `WHETSTONE_ENGINE=${id}`,
+    process.execPath,
+    CLI_PATH,
+    "__engine",
+    id,
+  ];
   let terminal;
   try {
-    const spec = { name: "Whetstone · " + args.slug, folder: args.repo, argv, ...(space ? { space } : {}) };
+    const spec = { name: `Whetstone · ${args.slug}`, folder: args.repo, argv, ...(space ? { space } : {}) };
     const { stdout } = await promisify(execFile)(HERDR_APP, ["do", "tab.new", JSON.stringify(spec)]);
     terminal = JSON.parse(stdout).terminal;
   } catch {
-    const out = JSON.parse(await hc(["run", "--bg", "--json", "--name", terminalName(id, "engine"), "--cwd", args.repo, "--no-parent",
-      "--label", "whetstone=" + id, "--", ...argv]));
+    const out = JSON.parse(
+      await hc([
+        "run",
+        "--bg",
+        "--json",
+        "--name",
+        terminalName(id, "engine"),
+        "--cwd",
+        args.repo,
+        "--no-parent",
+        "--label",
+        `whetstone=${id}`,
+        "--",
+        ...argv,
+      ]),
+    );
     terminal = out.address;
   }
-  await store.update((s) => { s.args = args; s.engineTerminal = terminal; s.space = space; });
-  console.log("Whetstone run " + id);
-  console.log("  engine  " + terminal + (space ? " (tab \"Whetstone · " + args.slug + "\")" : ""));
-  console.log("  state   " + store.dir);
-  console.log("Follow it in Herdr's Whetstone panel, or: whetstone status " + id);
+  await store.update((s) => {
+    s.args = args;
+    s.engineTerminal = terminal;
+    s.space = space;
+  });
+  console.log(`Whetstone run ${id}`);
+  console.log(`  engine  ${terminal}${space ? ` (tab "Whetstone · ${args.slug}")` : ""}`);
+  console.log(`  state   ${store.dir}`);
+  console.log(`Follow it in Herdr's Whetstone panel, or: whetstone status ${id}`);
   return 0;
 }
 
@@ -160,7 +221,11 @@ async function loadConfig() {
 }
 
 async function readState(dir) {
-  try { return JSON.parse(await readFile(join(dir, "state.json"), "utf8")); } catch { return null; }
+  try {
+    return JSON.parse(await readFile(join(dir, "state.json"), "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 async function allRuns() {
@@ -179,14 +244,27 @@ async function findRun(prefix) {
   const exact = runs.find((r) => r.id === prefix);
   if (exact) return exact;
   const matches = runs.filter((r) => r.id.startsWith(prefix));
-  if (!matches.length) throw new Error("no run matches " + prefix);
-  if (matches.length > 1) throw new Error(prefix + " matches more than one run: " + matches.map((r) => r.id).sort().join(", "));
+  if (!matches.length) throw new Error(`no run matches ${prefix}`);
+  if (matches.length > 1)
+    throw new Error(
+      prefix +
+        " matches more than one run: " +
+        matches
+          .map((r) => r.id)
+          .sort()
+          .join(", "),
+    );
   return matches[0];
 }
 
 function alive(pid) {
   if (!pid) return false;
-  try { process.kill(pid, 0); return true; } catch (error) { return error.code === "EPERM"; }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
 }
 
 // A run whose engine process is gone shows as interrupted, not running.
@@ -202,20 +280,34 @@ async function gitRoot(dir) {
 
 function stamp(date = new Date()) {
   const p = (n) => String(n).padStart(2, "0");
-  return date.getFullYear() + p(date.getMonth() + 1) + p(date.getDate()) + "-" + p(date.getHours()) + p(date.getMinutes()) + p(date.getSeconds());
+  return (
+    date.getFullYear() +
+    p(date.getMonth() + 1) +
+    p(date.getDate()) +
+    "-" +
+    p(date.getHours()) +
+    p(date.getMinutes()) +
+    p(date.getSeconds())
+  );
 }
 
 async function execute(store, args) {
   const config = await loadConfig();
-  console.log("Whetstone run " + store.state.id);
-  console.log("  state   " + store.dir);
+  console.log(`Whetstone run ${store.state.id}`);
+  console.log(`  state   ${store.dir}`);
   try {
-    const result = await runWhetstone({ args, config, harnesses: harnesses(store.state), store, workspace: gitWorkspace });
-    console.log("Done: " + result.finalBranch + " (" + result.finalPath + ")");
-    console.log("Report: " + result.report);
+    const result = await runWhetstone({
+      args,
+      config,
+      harnesses: harnesses(store.state),
+      store,
+      workspace: gitWorkspace,
+    });
+    console.log(`Done: ${result.finalBranch} (${result.finalPath})`);
+    console.log(`Report: ${result.report}`);
     return 0;
   } catch (error) {
-    console.error("whetstone: " + error.message);
+    console.error(`whetstone: ${error.message}`);
     return 1;
   }
 }
@@ -223,7 +315,7 @@ async function execute(store, args) {
 const commands = {
   async run(argv) {
     const args = parseRunArgs(argv);
-    args.repo = resolve(args.repo || await gitRoot(process.cwd()));
+    args.repo = resolve(args.repo || (await gitRoot(process.cwd())));
     // Read before anything starts, so a bad key or a signed-out Linear fails here.
     if (args.issue) {
       const issue = await createLinearReader().read(args.issue);
@@ -232,25 +324,30 @@ const commands = {
       args.slug ??= issueSlug(issue);
     }
     args.slug = slugify(args.slug || args.task);
-    const id = args.slug + "-" + stamp();
+    const id = `${args.slug}-${stamp()}`;
     const store = await openStore(join(RUNS, id));
     // state.issue now, not only when the engine starts, so the pane can link it right away.
-    await store.update((s) => { s.id = id; s.args = args; s.issue = args.issue ?? null; });
+    await store.update((s) => {
+      s.id = id;
+      s.args = args;
+      s.issue = args.issue ?? null;
+    });
     if (usesHerdr(await loadConfig())) return launchEngine(store, args);
     return execute(store, args);
   },
 
   // For the start form's preview: the issue a run would get, and its slug.
   async issue([ref, ...rest]) {
-    if (!ref || ref.startsWith("--") || rest.some((a) => a !== "--json")) throw new Error("usage: whetstone issue <key|url> [--json]");
+    if (!ref || ref.startsWith("--") || rest.some((a) => a !== "--json"))
+      throw new Error("usage: whetstone issue <key|url> [--json]");
     const issue = await createLinearReader().read(ref);
     if (rest.includes("--json")) {
       console.log(JSON.stringify({ ...issue, slug: issueSlug(issue) }, null, 2));
       return 0;
     }
-    console.log(issue.key + " · " + issue.title);
+    console.log(`${issue.key} · ${issue.title}`);
     console.log(issue.url);
-    if (issue.description) console.log("\n" + issue.description);
+    if (issue.description) console.log(`\n${issue.description}`);
     return 0;
   },
 
@@ -264,14 +361,19 @@ const commands = {
   async resume([prefix]) {
     const run = await findRun(prefix);
     if (alive(run.state.pid) && run.state.status !== "done") {
-      await writeControl(run.dir, (c) => { c.pause = null; });
-      console.log("Resumed " + run.id);
+      await writeControl(run.dir, (c) => {
+        c.pause = null;
+      });
+      console.log(`Resumed ${run.id}`);
       return 0;
     }
-    if (run.state.status === "done") throw new Error(run.id + " already finished");
-    if (!run.state.args) throw new Error(run.id + " has no saved args to restart from");
-    await writeControl(run.dir, (c) => { c.pause = null; c.stop = false; });
-    console.log("Restarting " + run.id + " from its last finished stage");
+    if (run.state.status === "done") throw new Error(`${run.id} already finished`);
+    if (!run.state.args) throw new Error(`${run.id} has no saved args to restart from`);
+    await writeControl(run.dir, (c) => {
+      c.pause = null;
+      c.stop = false;
+    });
+    console.log(`Restarting ${run.id} from its last finished stage`);
     const store = await openStore(run.dir);
     if (usesHerdr(await loadConfig())) return launchEngine(store, run.state.args);
     return execute(store, run.state.args);
@@ -280,39 +382,56 @@ const commands = {
   async pause([prefix, ...rest]) {
     const run = await findRun(prefix);
     const now = rest.includes("--now");
-    await writeControl(run.dir, (c) => { c.pause = now ? "now" : "after-step"; });
-    console.log(now ? "Pausing " + run.id + " now" : "Pausing " + run.id + " after the running stage");
+    await writeControl(run.dir, (c) => {
+      c.pause = now ? "now" : "after-step";
+    });
+    console.log(now ? `Pausing ${run.id} now` : `Pausing ${run.id} after the running stage`);
     return 0;
   },
 
   async stop([prefix]) {
     const run = await findRun(prefix);
-    await writeControl(run.dir, (c) => { c.stop = true; });
-    console.log("Stopping " + run.id + " at the next stage boundary");
+    await writeControl(run.dir, (c) => {
+      c.stop = true;
+    });
+    console.log(`Stopping ${run.id} at the next stage boundary`);
     return 0;
   },
 
   async approve([prefix, step]) {
     const run = await findRun(prefix);
-    const target = Number(step) || (run.state.next && run.state.next.step) || (run.state.step || 1) + 1;
-    await writeControl(run.dir, (c) => { c.approved = Math.max(Number(c.approved) || 1, target); });
-    console.log("Approved " + run.id + " through step " + target + "/" + STEPS.length);
+    const target = Number(step) || run.state.next?.step || (run.state.step || 1) + 1;
+    await writeControl(run.dir, (c) => {
+      c.approved = Math.max(Number(c.approved) || 1, target);
+    });
+    console.log(`Approved ${run.id} through step ${target}/${STEPS.length}`);
     return 0;
   },
 
   async answer([prefix, ...words]) {
     const run = await findRun(prefix);
     const q = run.state.question;
-    if (!q) throw new Error(run.id + " has no open question");
+    if (!q) throw new Error(`${run.id} has no open question`);
     if (!words.length) throw new Error("answer needs text");
-    await writeControl(run.dir, (c) => { c.answers = { ...(c.answers || {}), [q.id]: words.join(" ") }; });
-    console.log("Answer queued for " + (run.state.lanes?.[q.lane]?.name || q.lane));
+    await writeControl(run.dir, (c) => {
+      c.answers = { ...(c.answers || {}), [q.id]: words.join(" ") };
+    });
+    console.log(`Answer queued for ${run.state.lanes?.[q.lane]?.name || q.lane}`);
     return 0;
   },
 
   async list() {
     for (const { id, state } of await allRuns()) {
-      console.log([id.padEnd(40), shownStatus(state).padEnd(12), ((state.step || 0) + "/" + STEPS.length).padEnd(5), state.latest || ""].join("  ").trimEnd());
+      console.log(
+        [
+          id.padEnd(40),
+          shownStatus(state).padEnd(12),
+          `${state.step || 0}/${STEPS.length}`.padEnd(5),
+          state.latest || "",
+        ]
+          .join("  ")
+          .trimEnd(),
+      );
     }
     return 0;
   },
@@ -324,38 +443,66 @@ const commands = {
       return 0;
     }
     const s = run.state;
-    console.log(run.id + " · " + shownStatus(s));
+    console.log(`${run.id} · ${shownStatus(s)}`);
     if (s.latest) console.log(s.latest);
     for (const lane of Object.values(s.lanes || {})) {
-      console.log("  " + [lane.name.padEnd(8), (lane.role || "").padEnd(10), (lane.status || "").padEnd(8), lane.model || ""].join("  ").trimEnd());
+      console.log(
+        "  " +
+          [lane.name.padEnd(8), (lane.role || "").padEnd(10), (lane.status || "").padEnd(8), lane.model || ""]
+            .join("  ")
+            .trimEnd(),
+      );
     }
-    if (s.question) console.log("\nQuestion from " + (s.lanes?.[s.question.lane]?.name || s.question.lane) + ":\n" + s.question.text);
-    if (s.report && s.status === "done") console.log("\nReport: " + s.report);
+    if (s.question)
+      console.log(`\nQuestion from ${s.lanes?.[s.question.lane]?.name || s.question.lane}:\n${s.question.text}`);
+    if (s.report && s.status === "done") console.log(`\nReport: ${s.report}`);
     return 0;
   },
 
   async doctor() {
     const config = await loadConfig();
-    const available = { pi: createPiHarness(), herdr: { detect: async () => { try { await hc(["ls", "--json"]); return { installed: true }; } catch { return { installed: false }; } } } };
+    const available = {
+      pi: createPiHarness(),
+      herdr: {
+        detect: async () => {
+          try {
+            await hc(["ls", "--json"]);
+            return { installed: true };
+          } catch {
+            return { installed: false };
+          }
+        },
+      },
+    };
     for (const lane of config.lanes) {
       const h = available[lane.harness];
       const found = h ? await h.detect() : { installed: false };
-      console.log(lane.name.padEnd(8) + " " + lane.harness.padEnd(12) + " " + (h ? (found.installed ? "ok " + (found.version || "") : "not installed") : "no adapter yet"));
+      console.log(
+        lane.name.padEnd(8) +
+          " " +
+          lane.harness.padEnd(12) +
+          " " +
+          (h ? (found.installed ? `ok ${found.version || ""}` : "not installed") : "no adapter yet"),
+      );
     }
     return 0;
-  }
+  },
 };
 
-async function main([command, ...rest]) {
+/** @param {string[]} argv */
+async function main(argv) {
+  const [command, ...rest] = argv;
   const handler = commands[command];
   if (!handler) {
-    console.error("usage: whetstone run|issue|list|status|pause|resume|stop|approve|answer|doctor (see engine/cli.mjs)");
+    console.error(
+      "usage: whetstone run|issue|list|status|pause|resume|stop|approve|answer|doctor (see engine/cli.mjs)",
+    );
     return 2;
   }
   try {
     return await handler(rest);
   } catch (error) {
-    console.error("whetstone: " + error.message);
+    console.error(`whetstone: ${error.message}`);
     return 1;
   }
 }

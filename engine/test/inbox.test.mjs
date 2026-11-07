@@ -1,6 +1,6 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
+import { test } from "node:test";
 import { createInbox } from "../inbox.mjs";
 
 test("next returns a buffered line that matches and leaves the rest", async () => {

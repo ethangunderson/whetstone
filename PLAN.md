@@ -48,16 +48,16 @@ export default {
 }
 ```
 
-| Need | pi | Claude Code | Codex (unverified) |
-|---|---|---|---|
-| Headless | `-p` | `-p` | `codex exec` |
-| Model | `--model provider/id` | `--model` | `-m` |
-| Effort | `--thinking` | `--effort` | `-c model_reasoning_effort=` |
-| Same session across stages | `--session-id` | `--session-id <uuid>` then `--resume` | `codex exec resume <id>` |
-| Role prompt | `--system-prompt` | `--append-system-prompt` | prepend to prompt |
-| Read-only reviewer | `--tools read,grep,find,ls,bash` | `--tools` / `--disallowedTools` | `--sandbox read-only` |
-| Edits without asking | default | `--permission-mode` | `--sandbox workspace-write` |
-| Parseable output | `--mode json` | `--output-format stream-json` | `--json` |
+| Need                       | pi                               | Claude Code                           | Codex (unverified)           |
+| -------------------------- | -------------------------------- | ------------------------------------- | ---------------------------- |
+| Headless                   | `-p`                             | `-p`                                  | `codex exec`                 |
+| Model                      | `--model provider/id`            | `--model`                             | `-m`                         |
+| Effort                     | `--thinking`                     | `--effort`                            | `-c model_reasoning_effort=` |
+| Same session across stages | `--session-id`                   | `--session-id <uuid>` then `--resume` | `codex exec resume <id>`     |
+| Role prompt                | `--system-prompt`                | `--append-system-prompt`              | prepend to prompt            |
+| Read-only reviewer         | `--tools read,grep,find,ls,bash` | `--tools` / `--disallowedTools`       | `--sandbox read-only`        |
+| Edits without asking       | default                          | `--permission-mode`                   | `--sandbox workspace-write`  |
+| Parseable output           | `--mode json`                    | `--output-format stream-json`         | `--json`                     |
 
 Lanes run as visible Herdr terminals (`hc run --bg`, labeled
 `whetstone=<run> lane=<id>`) once the pane exists; until then the engine
@@ -76,19 +76,19 @@ Config (`~/.whetstone/config.json`; Ethan's defaults shown):
 
 ```json
 {
-  "lanes": [
-    { "id": "claude", "name": "Claude", "harness": "pi" },
-    { "id": "codex",  "name": "Codex",  "harness": "pi" }
-  ],
+  "lanes": [{ "id": "claude", "name": "Claude", "harness": "pi" }, { "id": "codex", "name": "Codex", "harness": "pi" }],
   "tiers": {
-    "easy":   { "claude": "claude-bridge/claude-sonnet-5-5:medium", "codex": "openai-codex/gpt-6-luna:medium" },
-    "medium": { "claude": "claude-bridge/claude-opus-5-5:medium",   "codex": "openai-codex/gpt-6-sol:medium" },
-    "hard":   { "claude": "claude-bridge/claude-fable-5-1:high",    "codex": "openai-codex/gpt-6.1-sol:high",
-                "fallback": { "claude": "claude-bridge/claude-opus-5-5:high", "codex": "openai-codex/gpt-6-sol:high" } }
+    "easy": { "claude": "claude-bridge/claude-sonnet-5-5:medium", "codex": "openai-codex/gpt-6-luna:medium" },
+    "medium": { "claude": "claude-bridge/claude-opus-5-5:medium", "codex": "openai-codex/gpt-6-sol:medium" },
+    "hard": {
+      "claude": "claude-bridge/claude-fable-5-1:high",
+      "codex": "openai-codex/gpt-6.1-sol:high",
+      "fallback": { "claude": "claude-bridge/claude-opus-5-5:high", "codex": "openai-codex/gpt-6-sol:high" }
+    }
   },
-  "triage":   { "lane": "codex",  "model": "openai-codex/gpt-6-luna:low" },
+  "triage": { "lane": "codex", "model": "openai-codex/gpt-6-luna:low" },
   "reporter": { "lane": "claude", "model": "claude-bridge/claude-sonnet-5-5:medium" },
-  "arbiter":  { "lane": "codex" }
+  "arbiter": { "lane": "codex" }
 }
 ```
 
@@ -115,19 +115,30 @@ Worktrees and the report keep today's shape under a new name:
 ```json
 {
   "id": "add-rate-limiter-1793914877",
-  "task": "…", "repo": "…", "slug": "…", "baseRef": "HEAD",
+  "task": "…",
+  "repo": "…",
+  "slug": "…",
+  "baseRef": "HEAD",
   "status": "running | paused | blocked | done | failed | stopped",
-  "step": 5, "steps": ["triage","draft","debate","integrate","review","report"],
-  "difficulty": "hard", "fable": "available",
+  "step": 5,
+  "steps": ["triage", "draft", "debate", "integrate", "review", "report"],
+  "difficulty": "hard",
+  "fable": "available",
   "models": { "claude": "…", "codex": "…" },
   "lanes": {
     "claude": { "role": "reviewer", "status": "working", "terminal": "t7", "since": "…" },
-    "codex":  { "role": "integrator", "status": "idle", "terminal": "t8" }
+    "codex": { "role": "integrator", "status": "idle", "terminal": "t8" }
   },
   "votes": { "base": {}, "integrator": { "claude": "codex", "codex": "codex" } },
-  "integrator": "codex", "decidedBy": "consensus",
-  "plan": { "claude": {"claude":3,"codex":5,"both":2,"new":1}, "codex": {} },
-  "rounds": [{ "round": 1, "findings": [{ "id": "CL1-1", "severity": "P1", "reviewer": "claude", "title": "…", "disposition": "FIXED" }] }],
+  "integrator": "codex",
+  "decidedBy": "consensus",
+  "plan": { "claude": { "claude": 3, "codex": 5, "both": 2, "new": 1 }, "codex": {} },
+  "rounds": [
+    {
+      "round": 1,
+      "findings": [{ "id": "CL1-1", "severity": "P1", "reviewer": "claude", "title": "…", "disposition": "FIXED" }]
+    }
+  ],
   "question": null,
   "stages": [{ "key": "draft-claude", "ok": true, "ms": 840000, "file": "…" }],
   "report": null

@@ -1,8 +1,8 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { test } from "node:test";
 
-const role = (name) => readFile(new URL("../agents/" + name + ".md", import.meta.url), "utf8");
+const role = (name) => readFile(new URL(`../agents/${name}.md`, import.meta.url), "utf8");
 
 test("writer and reviewer role prompts forbid starting agents of their own", async () => {
   const roles = ["writer", "reviewer"];
