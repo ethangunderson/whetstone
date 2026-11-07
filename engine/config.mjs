@@ -9,7 +9,7 @@ export const DEFAULT_CONFIG = {
   lanes: [
     // Live pi agents in Herdr terminals. Use harness "pi" to run headless without Herdr.
     { id: "claude", name: "Claude", harness: "herdr", agent: "pi", prefix: "CL" },
-    { id: "codex", name: "Codex", harness: "herdr", agent: "pi", prefix: "CX" }
+    { id: "codex", name: "Codex", harness: "herdr", agent: "pi", prefix: "CX" },
   ],
   tiers: {
     easy: { claude: "claude-bridge/claude-sonnet-5-5:medium", codex: "openai-codex/gpt-6-luna:medium" },
@@ -19,12 +19,12 @@ export const DEFAULT_CONFIG = {
     hard: {
       claude: "claude-bridge/claude-fable-5-1:high",
       codex: "openai-codex/gpt-6.1-sol:high",
-      fallback: { claude: "claude-bridge/claude-opus-5-5:high", codex: "openai-codex/gpt-6-sol:high" }
-    }
+      fallback: { claude: "claude-bridge/claude-opus-5-5:high", codex: "openai-codex/gpt-6-sol:high" },
+    },
   },
   triage: { lane: "codex", model: "openai-codex/gpt-6-luna:low" },
   reporter: { lane: "claude", model: "claude-bridge/claude-sonnet-5-5:medium" },
-  arbiter: { lane: "codex" }
+  arbiter: { lane: "codex" },
 };
 
 export function splitModel(spec) {
@@ -50,7 +50,10 @@ export function resolveConfig(user = DEFAULT_CONFIG) {
   if (!a.prefix || !b.prefix || a.prefix === b.prefix) {
     let pa = a.prefix || a.id.slice(0, 2).toUpperCase();
     let pb = b.prefix || b.id.slice(0, 2).toUpperCase();
-    if (pa === pb) { pa = "A"; pb = "B"; }
+    if (pa === pb) {
+      pa = "A";
+      pb = "B";
+    }
     a.prefix = pa;
     b.prefix = pb;
   }
@@ -60,7 +63,8 @@ export function resolveConfig(user = DEFAULT_CONFIG) {
     const t = (user.tiers || {})[tier];
     for (const id of ids) {
       if (!t || !t[id]) throw new Error("config tiers." + tier + " needs a model for lane " + id);
-      if (t.fallback && !t.fallback[id]) throw new Error("config tiers." + tier + ".fallback needs a model for lane " + id);
+      if (t.fallback && !t.fallback[id])
+        throw new Error("config tiers." + tier + ".fallback needs a model for lane " + id);
     }
     tiers[tier] = t;
   }
@@ -78,6 +82,6 @@ export function resolveConfig(user = DEFAULT_CONFIG) {
     tiers,
     triage: helper("triage", true),
     reporter: helper("reporter", true),
-    arbiter: helper("arbiter", false)
+    arbiter: helper("arbiter", false),
   };
 }

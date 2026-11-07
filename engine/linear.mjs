@@ -25,7 +25,10 @@ export function parseIssueRef(text) {
   if (KEY.test(ref)) return { key: ref.toUpperCase() };
   const m = ref.match(URL_RE);
   if (m) return { key: m[2].toUpperCase(), urlKey: m[1] };
-  throw new Error(JSON.stringify(ref) + " is not a Linear issue key or URL (like WHE-5 or https://linear.app/<workspace>/issue/WHE-5)");
+  throw new Error(
+    JSON.stringify(ref) +
+      " is not a Linear issue key or URL (like WHE-5 or https://linear.app/<workspace>/issue/WHE-5)",
+  );
 }
 
 // The override, else the newest version the Herdr Linear mod installed whose
@@ -34,47 +37,85 @@ export function findHerdrLinear({ env = process.env, home = homedir() } = {}) {
   if (env[OVERRIDE]) return env[OVERRIDE];
   const dir = join(home, ".local/share/herdr-linear/app");
   let versions;
-  try { versions = readdirSync(dir).filter((v) => /^\d+(\.\d+)*$/.test(v)); } catch { return null; }
+  try {
+    versions = readdirSync(dir).filter((v) => /^\d+(\.\d+)*$/.test(v));
+  } catch {
+    return null;
+  }
   const parts = (v) => v.split(".").map(Number);
   versions.sort((a, b) => {
     const [x, y] = [parts(a), parts(b)];
-    for (let i = 0; i < Math.max(x.length, y.length); i += 1) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0);
+    for (let i = 0; i < Math.max(x.length, y.length); i += 1)
+      if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0);
     return 0;
   });
   for (const v of versions.reverse()) {
-    try { accessSync(join(dir, v, "herdr-linear"), constants.X_OK); return join(dir, v, "herdr-linear"); } catch { /* an older one */ }
+    try {
+      accessSync(join(dir, v, "herdr-linear"), constants.X_OK);
+      return join(dir, v, "herdr-linear");
+    } catch {
+      /* an older one */
+    }
   }
   return null;
 }
 
-const missing = (bin) => new Error("herdr-linear not found" + (bin ? " at " + bin : "") +
-  ": install the Herdr Linear mod, or set " + OVERRIDE + " to its path");
-const signedOut = (urlKey) => new Error(urlKey
-  ? "herdr-linear is not signed in to the Linear workspace " + urlKey + ": sign in with `herdr-linear login`"
-  : "herdr-linear is not signed in to Linear: sign in with `herdr-linear login`");
+const missing = (bin) =>
+  new Error(
+    "herdr-linear not found" +
+      (bin ? " at " + bin : "") +
+      ": install the Herdr Linear mod, or set " +
+      OVERRIDE +
+      " to its path",
+  );
+const signedOut = (urlKey) =>
+  new Error(
+    urlKey
+      ? "herdr-linear is not signed in to the Linear workspace " + urlKey + ": sign in with `herdr-linear login`"
+      : "herdr-linear is not signed in to Linear: sign in with `herdr-linear login`",
+  );
 
-const isJson = (text) => { try { JSON.parse(text); return true; } catch { return false; } };
+const isJson = (text) => {
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 // run(args) → stdout; tests pass their own. herdr-linear may print its JSON
 // answer and still exit non-zero, so a JSON stdout wins over the exit code;
 // anything else on a failure means stderr has the reason. Each call gets
 // timeoutMs: Linear is behind it, and a stall would hang the start.
 export function createLinearReader({ bin = findHerdrLinear(), run, timeoutMs = 30_000 } = {}) {
-  const exec = run || (async (args) => {
-    if (!bin) throw missing(bin);
-    try {
-      return (await promisify(execFile)(bin, args, { maxBuffer: 8 << 20, timeout: timeoutMs })).stdout;
-    } catch (error) {
-      if (error.code === "ENOENT" || error.code === "EACCES") throw missing(bin);
-      if (error.killed) throw new Error("herdr-linear didn't answer within " + timeoutMs / 1000 + "s (" + args[0] + ")");
-      if (isJson(error.stdout)) return error.stdout;
-      throw new Error("herdr-linear failed: " + String(error.stderr || error.stdout || error.message).trim().slice(0, 500));
-    }
-  });
+  const exec =
+    run ||
+    (async (args) => {
+      if (!bin) throw missing(bin);
+      try {
+        return (await promisify(execFile)(bin, args, { maxBuffer: 8 << 20, timeout: timeoutMs })).stdout;
+      } catch (error) {
+        if (error.code === "ENOENT" || error.code === "EACCES") throw missing(bin);
+        if (error.killed)
+          throw new Error("herdr-linear didn't answer within " + timeoutMs / 1000 + "s (" + args[0] + ")");
+        if (isJson(error.stdout)) return error.stdout;
+        throw new Error(
+          "herdr-linear failed: " +
+            String(error.stderr || error.stdout || error.message)
+              .trim()
+              .slice(0, 500),
+        );
+      }
+    });
 
   const call = async (args) => {
     const out = await exec(args);
-    try { return JSON.parse(out); } catch { throw new Error("herdr-linear gave an answer whetstone can't read: " + String(out).slice(0, 200)); }
+    try {
+      return JSON.parse(out);
+    } catch {
+      throw new Error("herdr-linear gave an answer whetstone can't read: " + String(out).slice(0, 200));
+    }
   };
   const app = async (req, what) => {
     const answer = await call(["app", JSON.stringify(req)]);
@@ -97,12 +138,19 @@ export function createLinearReader({ bin = findHerdrLinear(), run, timeoutMs = 3
           if (answer.signedOut) throw signedOut();
           throw new Error("herdr-linear couldn't look up " + ref.key + ": " + answer.error);
         }
-        if (!Array.isArray(answer)) throw new Error("herdr-linear gave an answer whetstone can't read: " + JSON.stringify(answer).slice(0, 200));
+        if (!Array.isArray(answer))
+          throw new Error("herdr-linear gave an answer whetstone can't read: " + JSON.stringify(answer).slice(0, 200));
         const found = answer.find((r) => String(r && r.key).toUpperCase() === ref.key);
         if (found && found.error && found.signedOut) throw signedOut();
         if (found && found.error) throw new Error("herdr-linear couldn't look up " + ref.key + ": " + found.error);
         if (!found || !found.issue) {
-          throw new Error("Linear issue " + ref.key + " not found in your signed-in workspaces (" + workspaces.map((w) => w.urlKey).join(", ") + ")");
+          throw new Error(
+            "Linear issue " +
+              ref.key +
+              " not found in your signed-in workspaces (" +
+              workspaces.map((w) => w.urlKey).join(", ") +
+              ")",
+          );
         }
         urlKey = found.issue.workspace;
       }
@@ -117,9 +165,9 @@ export function createLinearReader({ bin = findHerdrLinear(), run, timeoutMs = 3
         url: issue.url || "",
         description: detail.description || "",
         state: issue.state?.name ?? null,
-        workspace: urlKey
+        workspace: urlKey,
       };
-    }
+    },
   };
 }
 

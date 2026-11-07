@@ -15,7 +15,7 @@
     "install-mod": "scripts/install-mod.sh",
     "format": "biome format --write",
     "lint": "biome check",
-    "check": "npm test"
+    "check": "biome format && npm test"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6"

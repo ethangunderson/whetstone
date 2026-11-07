@@ -1,11 +1,11 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { test } from "node:test";
 import { promisify } from "node:util";
-import { parseRunArgs, laneLabels } from "../cli.mjs";
+import { laneLabels, parseRunArgs } from "../cli.mjs";
 import { slugify } from "../run.mjs";
 
 const run = promisify(execFile);
@@ -28,10 +28,28 @@ function cli(dir, ...args) {
 
 test("parseRunArgs reads flags and the task text", () => {
   assert.deepEqual(
-    parseRunArgs(["--repo", "/r/app", "--difficulty", "easy", "--rounds", "1", "--step-mode", "--base", "main", "Add", "CSV", "export"]),
-    { repo: "/r/app", difficulty: "easy", maxRounds: 1, stepMode: true, baseRef: "main", task: "Add CSV export" }
+    parseRunArgs([
+      "--repo",
+      "/r/app",
+      "--difficulty",
+      "easy",
+      "--rounds",
+      "1",
+      "--step-mode",
+      "--base",
+      "main",
+      "Add",
+      "CSV",
+      "export",
+    ]),
+    { repo: "/r/app", difficulty: "easy", maxRounds: 1, stepMode: true, baseRef: "main", task: "Add CSV export" },
   );
-  assert.deepEqual(parseRunArgs(["--no-fallback", "--slug", "csv", "--isolation", "shared db", "x"]), { fallback: false, slug: "csv", isolation: "shared db", task: "x" });
+  assert.deepEqual(parseRunArgs(["--no-fallback", "--slug", "csv", "--isolation", "shared db", "x"]), {
+    fallback: false,
+    slug: "csv",
+    isolation: "shared db",
+    task: "x",
+  });
   assert.deepEqual(parseRunArgs(["--fallback", "x"]), { fallback: true, task: "x" });
   assert.throws(() => parseRunArgs(["--difficulty", "extreme", "x"]), /difficulty/);
   assert.throws(() => parseRunArgs(["--bogus", "x"]), /unknown option --bogus/);
@@ -40,7 +58,10 @@ test("parseRunArgs reads flags and the task text", () => {
 
 test("parseRunArgs takes an issue instead of task text, with optional notes", () => {
   assert.deepEqual(parseRunArgs(["--issue", "WHE-5"]), { issue: "WHE-5" });
-  assert.deepEqual(parseRunArgs(["--issue", "WHE-5", "--notes", "keep it small"]), { issue: "WHE-5", notes: "keep it small" });
+  assert.deepEqual(parseRunArgs(["--issue", "WHE-5", "--notes", "keep it small"]), {
+    issue: "WHE-5",
+    notes: "keep it small",
+  });
   assert.throws(() => parseRunArgs(["--notes", "and add a test", "Fix", "it"]), /--notes requires --issue/);
   assert.throws(() => parseRunArgs(["--issue", "WHE-5", "Fix", "it"]), /either task text or --issue/);
   assert.throws(() => parseRunArgs(["--issue"]), /--issue needs a value/);
@@ -54,7 +75,10 @@ test("slugify matches the engine's branch naming", () => {
 
 test("pause, resume, stop, approve and answer write control.json", async () => {
   const dir = await home();
-  const runDir = await fakeRun(dir, "csv-export-1", { status: "running", question: { id: "draft-claude-q1", lane: "claude" } });
+  const runDir = await fakeRun(dir, "csv-export-1", {
+    status: "running",
+    question: { id: "draft-claude-q1", lane: "claude" },
+  });
   const control = async () => JSON.parse(await readFile(join(runDir, "control.json"), "utf8"));
 
   await cli(dir, "pause", "csv-export-1");
@@ -81,8 +105,21 @@ test("answer refuses when nothing is being asked", async () => {
 
 test("list and status summarize runs", async () => {
   const dir = await home();
-  await fakeRun(dir, "csv-export-1", { slug: "csv-export", status: "running", step: 2, latest: "Step 2/6 · Drafting", startedAt: "2026-11-05T10:00:00Z", lanes: { claude: { name: "Claude", status: "working", role: "writer", model: "m1" } } });
-  await fakeRun(dir, "auth-fix-2", { slug: "auth-fix", status: "done", step: 6, latest: "Done", startedAt: "2026-11-04T10:00:00Z" });
+  await fakeRun(dir, "csv-export-1", {
+    slug: "csv-export",
+    status: "running",
+    step: 2,
+    latest: "Step 2/6 · Drafting",
+    startedAt: "2026-11-05T10:00:00Z",
+    lanes: { claude: { name: "Claude", status: "working", role: "writer", model: "m1" } },
+  });
+  await fakeRun(dir, "auth-fix-2", {
+    slug: "auth-fix",
+    status: "done",
+    step: 6,
+    latest: "Done",
+    startedAt: "2026-11-04T10:00:00Z",
+  });
   const { stdout: list } = await cli(dir, "list");
   const lines = list.trim().split("\n");
   assert.match(lines[0], /csv-export-1\s+running\s+2\/6/);
@@ -123,32 +160,41 @@ test("the CLI runs when started through a symlink, as npm link installs it", asy
 async function fakeHc(dir) {
   const { writeFile: write, chmod } = await import("node:fs/promises");
   const bin = join(dir, "fake-hc.mjs");
-  await write(bin, `#!/usr/bin/env node
+  await write(
+    bin,
+    `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(join(dir, "hc-calls.jsonl"))}, JSON.stringify(args) + "\\n");
 if (args[0] === "get") console.log(JSON.stringify({ address: "t8", labels: { "herdr.space": "sp9" } }));
 else if (args[0] === "run") console.log(JSON.stringify({ address: "t99", name: args[args.indexOf("--name") + 1] }));
 else console.log("{}");
-`);
+`,
+  );
   await chmod(bin, 0o755);
   return bin;
 }
 
 async function hcCalls(dir) {
-  return (await readFile(join(dir, "hc-calls.jsonl"), "utf8")).trim().split("\n").map((l) => JSON.parse(l));
+  return (await readFile(join(dir, "hc-calls.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l));
 }
 
 // A stand-in for herdr-app: records `do` calls, answers tab.new like the app.
 async function fakeHerdrApp(dir, { fail = false } = {}) {
   const { writeFile: write, chmod } = await import("node:fs/promises");
   const bin = join(dir, "fake-herdr-app.mjs");
-  await write(bin, `#!/usr/bin/env node
+  await write(
+    bin,
+    `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 appendFileSync(${JSON.stringify(join(dir, "app-calls.jsonl"))}, JSON.stringify(process.argv.slice(2)) + "\\n");
 if (${fail}) { console.error("no window"); process.exit(1); }
 console.log(JSON.stringify({ space: "sp9", tab: "tb1", terminal: "t42" }));
-`);
+`,
+  );
   await chmod(bin, 0o755);
   return bin;
 }
@@ -157,7 +203,7 @@ async function startRun(dir, extraEnv) {
   const repo = join(dir, "app");
   await mkdir(repo, { recursive: true });
   const { stdout } = await run("node", [CLI, "run", "--repo", repo, "--difficulty", "easy", "Add CSV export"], {
-    env: { ...process.env, WHETSTONE_HOME: dir, HC_TERMINAL_ID: "t8", ...extraEnv }
+    env: { ...process.env, WHETSTONE_HOME: dir, HC_TERMINAL_ID: "t8", ...extraEnv },
   });
   return { stdout, repo };
 }
@@ -167,7 +213,10 @@ test("run starts the engine in one named Herdr tab, in the caller's space, and r
   const hc = await fakeHc(dir);
   const app = await fakeHerdrApp(dir);
   const { stdout, repo } = await startRun(dir, { WHETSTONE_HC: hc, WHETSTONE_HERDR_APP: app });
-  const [cmd, name, json] = (await readFile(join(dir, "app-calls.jsonl"), "utf8")).trim().split("\n").map((l) => JSON.parse(l))[0];
+  const [cmd, name, json] = (await readFile(join(dir, "app-calls.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l))[0];
   assert.deepEqual([cmd, name], ["do", "tab.new"]);
   const spec = JSON.parse(json);
   assert.equal(spec.name, "Whetstone · add-csv-export", "a useful tab name, not a number");
@@ -203,14 +252,35 @@ test("lanes carry no herdr labels, so they nest under the engine instead of open
 test("a run with headless pi lanes still runs in the foreground", async () => {
   const dir = await home();
   const { writeFile: write } = await import("node:fs/promises");
-  await write(join(dir, "config.json"), JSON.stringify({ lanes: [{ id: "claude", harness: "pi" }, { id: "codex", harness: "pi" }], tiers: Object.fromEntries(["easy", "medium", "hard"].map((t) => [t, { claude: "m", codex: "m" }])), triage: { lane: "codex", model: "m" }, reporter: { lane: "claude", model: "m" } }));
+  await write(
+    join(dir, "config.json"),
+    JSON.stringify({
+      lanes: [
+        { id: "claude", harness: "pi" },
+        { id: "codex", harness: "pi" },
+      ],
+      tiers: Object.fromEntries(["easy", "medium", "hard"].map((t) => [t, { claude: "m", codex: "m" }])),
+      triage: { lane: "codex", model: "m" },
+      reporter: { lane: "claude", model: "m" },
+    }),
+  );
   const hc = await fakeHc(dir);
   // No real pi here, and the repo doesn't exist: the foreground engine fails fast, which is enough to show it ran in place.
-  await assert.rejects(run("node", [CLI, "run", "--repo", join(dir, "missing"), "--difficulty", "easy", "x"], {
-    env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HC: hc, PATH: "/usr/bin:/bin:" + dirname(process.execPath) }
-  }));
+  await assert.rejects(
+    run("node", [CLI, "run", "--repo", join(dir, "missing"), "--difficulty", "easy", "x"], {
+      env: {
+        ...process.env,
+        WHETSTONE_HOME: dir,
+        WHETSTONE_HC: hc,
+        PATH: "/usr/bin:/bin:" + dirname(process.execPath),
+      },
+    }),
+  );
   const { existsSync } = await import("node:fs");
-  assert.ok(!existsSync(join(dir, "hc-calls.jsonl")) || !(await hcCalls(dir)).some((c) => c[0] === "run"), "no engine terminal");
+  assert.ok(
+    !existsSync(join(dir, "hc-calls.jsonl")) || !(await hcCalls(dir)).some((c) => c[0] === "run"),
+    "no engine terminal",
+  );
 });
 
 // A stand-in for herdr-linear 0.14.3: WHE-5 exists in eg-whetstone; status
@@ -218,7 +288,9 @@ test("a run with headless pi lanes still runs in the foreground", async () => {
 async function fakeHerdrLinear(dir) {
   const { writeFile: write, chmod } = await import("node:fs/promises");
   const bin = join(dir, "fake-herdr-linear.mjs");
-  await write(bin, `#!/usr/bin/env node
+  await write(
+    bin,
+    `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(join(dir, "linear-calls.jsonl"))}, JSON.stringify(args) + "\\n");
@@ -233,7 +305,8 @@ if (args[0] === "issues") {
   else if (!workspaces.some((w) => w.id === req.workspace)) console.log(JSON.stringify({ error: "not signed in to that workspace any more: " + req.workspace, signedOut: true }));
   else console.log(JSON.stringify({ description: "Lanes start before the engine is ready.", issue: { identifier: "WHE-5", title: "Lanes must not start", url, state: { name: "Todo" } }, labels: [] }));
 }
-`);
+`,
+  );
   await chmod(bin, 0o755);
   return bin;
 }
@@ -241,16 +314,33 @@ if (args[0] === "issues") {
 test("issue prints the issue without starting anything", async () => {
   const dir = await home();
   const linear = await fakeHerdrLinear(dir);
-  const out = await run("node", [CLI, "issue", "WHE-5", "--json"], { env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HERDR_LINEAR: linear } });
-  assert.deepEqual(JSON.parse(out.stdout), {
-    key: "WHE-5", title: "Lanes must not start", url: "https://linear.app/eg-whetstone/issue/WHE-5/lanes-must-not-start",
-    description: "Lanes start before the engine is ready.", state: "Todo", workspace: "eg-whetstone",
-    slug: "whe-5-lanes-must-not-start"
-  }, "a stable shape for the start form; the slug is the one the run will use");
-  const bad = await run("node", [CLI, "issue", "WHE-5", "--bogus"], { env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HERDR_LINEAR: linear } }).then(() => null, (e) => e);
+  const out = await run("node", [CLI, "issue", "WHE-5", "--json"], {
+    env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HERDR_LINEAR: linear },
+  });
+  assert.deepEqual(
+    JSON.parse(out.stdout),
+    {
+      key: "WHE-5",
+      title: "Lanes must not start",
+      url: "https://linear.app/eg-whetstone/issue/WHE-5/lanes-must-not-start",
+      description: "Lanes start before the engine is ready.",
+      state: "Todo",
+      workspace: "eg-whetstone",
+      slug: "whe-5-lanes-must-not-start",
+    },
+    "a stable shape for the start form; the slug is the one the run will use",
+  );
+  const bad = await run("node", [CLI, "issue", "WHE-5", "--bogus"], {
+    env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HERDR_LINEAR: linear },
+  }).then(
+    () => null,
+    (e) => e,
+  );
   assert.ok(bad, "unknown arguments are refused");
   assert.match(bad.stderr, /usage: whetstone issue <key\|url> \[--json\]/);
-  const text = await run("node", [CLI, "issue", "WHE-5"], { env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HERDR_LINEAR: linear } });
+  const text = await run("node", [CLI, "issue", "WHE-5"], {
+    env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HERDR_LINEAR: linear },
+  });
   assert.match(text.stdout, /^WHE-5 · Lanes must not start\n/);
   const { existsSync } = await import("node:fs");
   assert.ok(!existsSync(join(dir, "runs")), "no run created");
@@ -264,22 +354,44 @@ test("run --issue gives the lanes the issue and records it on the run", async ()
   const repo = join(dir, "app");
   await mkdir(repo, { recursive: true });
   await run("node", [CLI, "run", "--repo", repo, "--issue", "WHE-5", "--notes", "Keep it small."], {
-    env: { ...process.env, WHETSTONE_HOME: dir, HC_TERMINAL_ID: "t8", WHETSTONE_HC: hc, WHETSTONE_HERDR_APP: app, WHETSTONE_HERDR_LINEAR: linear }
+    env: {
+      ...process.env,
+      WHETSTONE_HOME: dir,
+      HC_TERMINAL_ID: "t8",
+      WHETSTONE_HC: hc,
+      WHETSTONE_HERDR_APP: app,
+      WHETSTONE_HERDR_LINEAR: linear,
+    },
   });
-  const spec = JSON.parse((await readFile(join(dir, "app-calls.jsonl"), "utf8")).trim().split("\n").map((l) => JSON.parse(l))[0][2]);
+  const spec = JSON.parse(
+    (await readFile(join(dir, "app-calls.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))[0][2],
+  );
   assert.equal(spec.name, "Whetstone · whe-5-lanes-must-not-start");
   const id = spec.argv[spec.argv.length - 1];
   assert.match(id, /^whe-5-lanes-must-not-start-/);
   const { args, issue } = JSON.parse(await readFile(join(dir, "runs", id, "state.json"), "utf8"));
   assert.deepEqual(issue, args.issue, "the pane can link the issue before the engine starts");
   assert.equal(args.slug, "whe-5-lanes-must-not-start");
-  assert.deepEqual(args.issue, { key: "WHE-5", title: "Lanes must not start", url: "https://linear.app/eg-whetstone/issue/WHE-5/lanes-must-not-start" });
+  assert.deepEqual(args.issue, {
+    key: "WHE-5",
+    title: "Lanes must not start",
+    url: "https://linear.app/eg-whetstone/issue/WHE-5/lanes-must-not-start",
+  });
   assert.match(args.task, /^WHE-5: Lanes must not start\n/);
   assert.match(args.task, /Lanes start before the engine is ready\./);
   assert.match(args.task, /Keep it small\.$/);
   assert.equal(args.notes, "Keep it small.");
-  const calls = (await readFile(join(dir, "linear-calls.jsonl"), "utf8")).trim().split("\n").map((l) => JSON.parse(l));
-  assert.ok(calls.every((c) => c[0] === "issues" || ["status", "detail"].includes(JSON.parse(c[1]).op)), "read only");
+  const calls = (await readFile(join(dir, "linear-calls.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l));
+  assert.ok(
+    calls.every((c) => c[0] === "issues" || ["status", "detail"].includes(JSON.parse(c[1]).op)),
+    "read only",
+  );
 });
 
 test("run --issue fails before any terminal opens when the issue can't be read", async () => {
@@ -287,8 +399,16 @@ test("run --issue fails before any terminal opens when the issue can't be read",
   const cases = [
     { issue: "WHE-999", env: {}, error: /Linear issue WHE-999 not found/ },
     { issue: "WHE-5", env: { FAKE_LINEAR_WORKSPACES: "[]" }, error: /herdr-linear is not signed in to Linear/ },
-    { issue: "https://linear.app/eg-whetstone/issue/WHE-5/x", env: { FAKE_LINEAR_WORKSPACES: '[{"id":"o","name":"o","urlKey":"other"}]' }, error: /not signed in to the Linear workspace eg-whetstone/ },
-    { issue: "WHE-5", env: { WHETSTONE_HERDR_LINEAR: "/nonexistent/herdr-linear" }, error: /herdr-linear not found at \/nonexistent\/herdr-linear/ }
+    {
+      issue: "https://linear.app/eg-whetstone/issue/WHE-5/x",
+      env: { FAKE_LINEAR_WORKSPACES: '[{"id":"o","name":"o","urlKey":"other"}]' },
+      error: /not signed in to the Linear workspace eg-whetstone/,
+    },
+    {
+      issue: "WHE-5",
+      env: { WHETSTONE_HERDR_LINEAR: "/nonexistent/herdr-linear" },
+      error: /herdr-linear not found at \/nonexistent\/herdr-linear/,
+    },
   ];
   for (const c of cases) {
     const dir = await home();
@@ -298,8 +418,19 @@ test("run --issue fails before any terminal opens when the issue can't be read",
     const repo = join(dir, "app");
     await mkdir(repo, { recursive: true });
     const failed = await run("node", [CLI, "run", "--repo", repo, "--issue", c.issue], {
-      env: { ...process.env, WHETSTONE_HOME: dir, HC_TERMINAL_ID: "t8", WHETSTONE_HC: hc, WHETSTONE_HERDR_APP: app, WHETSTONE_HERDR_LINEAR: linear, ...c.env }
-    }).then(() => null, (e) => e);
+      env: {
+        ...process.env,
+        WHETSTONE_HOME: dir,
+        HC_TERMINAL_ID: "t8",
+        WHETSTONE_HC: hc,
+        WHETSTONE_HERDR_APP: app,
+        WHETSTONE_HERDR_LINEAR: linear,
+        ...c.env,
+      },
+    }).then(
+      () => null,
+      (e) => e,
+    );
     assert.ok(failed, c.issue + " should fail");
     assert.match(failed.stderr, c.error);
     assert.ok(!existsSync(join(dir, "app-calls.jsonl")) && !existsSync(join(dir, "hc-calls.jsonl")), "no terminal");

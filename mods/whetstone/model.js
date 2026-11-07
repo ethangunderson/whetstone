@@ -36,13 +36,20 @@ export function runHeader(state, control, alive) {
       return control && control.pause
         ? { ...base, status: "Pausing after this stage", tone: "attention" }
         : { ...base, status: "Running", tone: "working" };
-    case "paused": return { ...base, status: "Paused", tone: "attention" };
-    case "waiting": return { ...base, status: "Waiting for you", tone: "attention" };
-    case "blocked": return { ...base, status: "Needs you", tone: "attention" };
-    case "done": return { ...base, status: "Done", tone: "done" };
-    case "failed": return { ...base, status: "Failed", tone: "failed" };
-    case "stopped": return { ...base, status: "Stopped", tone: "idle" };
-    default: return { ...base, status: titleCase(state.status || "starting"), tone: "idle" };
+    case "paused":
+      return { ...base, status: "Paused", tone: "attention" };
+    case "waiting":
+      return { ...base, status: "Waiting for you", tone: "attention" };
+    case "blocked":
+      return { ...base, status: "Needs you", tone: "attention" };
+    case "done":
+      return { ...base, status: "Done", tone: "done" };
+    case "failed":
+      return { ...base, status: "Failed", tone: "failed" };
+    case "stopped":
+      return { ...base, status: "Stopped", tone: "idle" };
+    default:
+      return { ...base, status: titleCase(state.status || "starting"), tone: "idle" };
   }
 }
 
@@ -97,7 +104,7 @@ export function laneCards(state, now) {
       detail: working && lane.since ? elapsed(now - Date.parse(lane.since)) : "",
       model: shortModel(lane.model),
       harness: lane.harness,
-      terminal: lane.terminal || null
+      terminal: lane.terminal || null,
     };
   });
 }
@@ -113,8 +120,10 @@ export function decision(state) {
   return {
     integrator: name(state.integrator),
     how: state.decidedBy === "arbiter" ? "arbiter decided" : "both agreed",
-    votes: Object.keys(lanes).filter((id) => votes[id]).map((id) => [name(id), name(votes[id])]),
-    share
+    votes: Object.keys(lanes)
+      .filter((id) => votes[id])
+      .map((id) => [name(id), name(votes[id])]),
+    share,
   };
 }
 
@@ -123,7 +132,9 @@ const isOpen = (f) => f.disposition !== "FIXED" && f.disposition !== "REJECTED";
 export function stats(state, now) {
   const rs = state.rounds || [];
   const findings = rs.flatMap((r) => r.findings || []);
-  const difficulty = state.difficulty ? titleCase(state.difficulty) + (state.fallback === "fallback" ? " · fallback" : "") : "–";
+  const difficulty = state.difficulty
+    ? titleCase(state.difficulty) + (state.fallback === "fallback" ? " · fallback" : "")
+    : "–";
   // Active time: wall time minus the time spent waiting for the operator.
   const end = state.endedAt ? Date.parse(state.endedAt) : now;
   const waiting = state.waitingSince ? now - Date.parse(state.waitingSince) : 0;
@@ -132,7 +143,7 @@ export function stats(state, now) {
     ["Difficulty", difficulty],
     ["Rounds", String(rs.length)],
     ["Open findings", rs.length ? String(findings.filter(isOpen).length) : "–"],
-    ["Active", state.startedAt ? elapsed(total) : "–"]
+    ["Active", state.startedAt ? elapsed(total) : "–"],
   ];
 }
 
@@ -140,7 +151,9 @@ export function rounds(state) {
   const lanes = state.lanes || {};
   return (state.rounds || []).map((r) => {
     const counts = Object.fromEntries(SEVERITIES.map((s) => [s, 0]));
-    (r.findings || []).forEach((f) => { if (counts[f.severity] !== undefined) counts[f.severity] += 1; });
+    (r.findings || []).forEach((f) => {
+      if (counts[f.severity] !== undefined) counts[f.severity] += 1;
+    });
     return {
       round: r.round,
       counts,
@@ -150,9 +163,13 @@ export function rounds(state) {
         reviewer: (lanes[f.reviewer] && lanes[f.reviewer].name) || f.reviewer,
         title: f.title,
         disposition: f.disposition ? f.disposition.toLowerCase() : "open",
-        positions: Object.entries(f.positions || {}).map(([id, p]) => ({ name: (lanes[id] && lanes[id].name) || id, position: String(p.position).toLowerCase(), why: p.why || "" })),
-        why: f.why || ""
-      }))
+        positions: Object.entries(f.positions || {}).map(([id, p]) => ({
+          name: (lanes[id] && lanes[id].name) || id,
+          position: String(p.position).toLowerCase(),
+          why: p.why || "",
+        })),
+        why: f.why || "",
+      })),
     };
   });
 }
@@ -164,39 +181,53 @@ export function parseEvents(text) {
     try {
       const e = JSON.parse(line);
       if (e && e.text) out.push(e);
-    } catch { /* skip a torn line */ }
+    } catch {
+      /* skip a torn line */
+    }
   }
   return out;
 }
 
 export function history(events, limit) {
-  return events.slice(-limit).reverse().map((e) => {
-    const d = new Date(e.at);
-    return {
-      time: String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"),
-      text: String(e.text).replace(/^Step \d+\/\d+ · /, "")
-    };
-  });
+  return events
+    .slice(-limit)
+    .reverse()
+    .map((e) => {
+      const d = new Date(e.at);
+      return {
+        time: String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"),
+        text: String(e.text).replace(/^Step \d+\/\d+ · /, ""),
+      };
+    });
 }
 
 export function actions(state, control, alive) {
   if (isActive(state) && !alive) return ["restart"];
   switch (state.status) {
-    case "running": return [control && control.pause ? "resume" : "pause", "stop"];
-    case "paused": return ["resume", "stop"];
-    case "waiting": return ["approve", "stop"];
-    case "blocked": return ["stop"];
-    case "done": return state.report ? ["report"] : [];
-    case "failed": return ["restart"];
-    default: return [];
+    case "running":
+      return [control && control.pause ? "resume" : "pause", "stop"];
+    case "paused":
+      return ["resume", "stop"];
+    case "waiting":
+      return ["approve", "stop"];
+    case "blocked":
+      return ["stop"];
+    case "done":
+      return state.report ? ["report"] : [];
+    case "failed":
+      return ["restart"];
+    default:
+      return [];
   }
 }
 
 // pin: { id, at } from clicking through runs; it holds until a run starts after it.
 export function pickRun(runs, pin) {
   if (!runs.length) return null;
-  if (pin && runs.some((r) => r.id === pin.id) && !runs.some((r) => String(r.state.startedAt || "") > String(pin.at))) return pin.id;
-  const newest = (list) => list.slice().sort((a, b) => String(b.state.startedAt || "").localeCompare(String(a.state.startedAt || "")))[0];
+  if (pin && runs.some((r) => r.id === pin.id) && !runs.some((r) => String(r.state.startedAt || "") > String(pin.at)))
+    return pin.id;
+  const newest = (list) =>
+    list.slice().sort((a, b) => String(b.state.startedAt || "").localeCompare(String(a.state.startedAt || "")))[0];
   const active = runs.filter((r) => isActive(r.state));
   return (active.length ? newest(active) : newest(runs)).id;
 }
@@ -217,11 +248,12 @@ export function storySections(state) {
       kind: "approaches",
       title: "Approaches",
       lanes: ids.map((id) => ({
-        id, name: laneName(state, id),
+        id,
+        name: laneName(state, id),
         approach: drafts[id] ? drafts[id].approach || null : null,
         choices: drafts[id] ? drafts[id].choices || [] : [],
-        weakSpots: drafts[id] ? drafts[id].weakSpots || [] : []
-      }))
+        weakSpots: drafts[id] ? drafts[id].weakSpots || [] : [],
+      })),
     });
   }
   const critiques = story.critiques || {};
@@ -232,13 +264,14 @@ export function storySections(state) {
       lanes: ids.map((id) => {
         const c = critiques[id];
         return {
-          id, name: laneName(state, id),
+          id,
+          name: laneName(state, id),
           peerBetter: c ? c.peerBetter || [] : [],
           mineBetter: c ? c.mineBetter || [] : [],
           middleRoad: c ? c.middleRoad || null : null,
-          base: c && c.base ? laneName(state, c.base) : null
+          base: c && c.base ? laneName(state, c.base) : null,
         };
-      })
+      }),
     });
   }
   const sel = story.selection;
@@ -250,14 +283,25 @@ export function storySections(state) {
       title: "Agreement",
       integrator,
       how: sel.decidedBy === "arbiter" ? "They disagreed; the arbiter chose " + integrator : "Both chose " + integrator,
-      reasons: ids.filter((id) => sel.reasons && sel.reasons[id]).map((id) => ({
-        name: laneName(state, id), vote: converge[id] && converge[id].vote ? laneName(state, converge[id].vote) : null, why: sel.reasons[id]
-      })),
+      reasons: ids
+        .filter((id) => sel.reasons && sel.reasons[id])
+        .map((id) => ({
+          name: laneName(state, id),
+          vote: converge[id] && converge[id].vote ? laneName(state, converge[id].vote) : null,
+          why: sel.reasons[id],
+        })),
       arbiter: sel.arbiter || null,
-      concessions: ids.filter((id) => converge[id]).map((id) => ({
-        name: laneName(state, id), conceded: converge[id].concessions || [], holding: converge[id].holding || []
+      concessions: ids
+        .filter((id) => converge[id])
+        .map((id) => ({
+          name: laneName(state, id),
+          conceded: converge[id].concessions || [],
+          holding: converge[id].holding || [],
+        })),
+      plan: ((story.plan && story.plan.items) || []).map((i) => ({
+        item: i.item,
+        source: SOURCE_NAMES[i.source] || laneName(state, i.source),
       })),
-      plan: ((story.plan && story.plan.items) || []).map((i) => ({ item: i.item, source: SOURCE_NAMES[i.source] || laneName(state, i.source) }))
     });
   }
   return out;
@@ -291,10 +335,12 @@ function stageLabel(key) {
 export function laneStages(state, laneId) {
   const out = [];
   for (const [key, r] of Object.entries(state.results || {})) {
-    if (r.lane === laneId && stageRank(key) !== null) out.push({ key, label: stageLabel(key), state: r.ok ? "done" : "failed", file: r.file || null });
+    if (r.lane === laneId && stageRank(key) !== null)
+      out.push({ key, label: stageLabel(key), state: r.ok ? "done" : "failed", file: r.file || null });
   }
   for (const [key, r] of Object.entries(state.running || {})) {
-    if (r.lane === laneId && stageRank(key) !== null && !out.some((s) => s.key === key)) out.push({ key, label: stageLabel(key), state: "running", file: null });
+    if (r.lane === laneId && stageRank(key) !== null && !out.some((s) => s.key === key))
+      out.push({ key, label: stageLabel(key), state: "running", file: null });
   }
   return out.sort((a, b) => stageRank(a.key) - stageRank(b.key));
 }
@@ -304,14 +350,22 @@ export function activityItems(text) {
   const tools = {};
   for (const line of String(text || "").split("\n")) {
     let e;
-    try { e = JSON.parse(line); } catch { continue; }
+    try {
+      e = JSON.parse(line);
+    } catch {
+      continue;
+    }
     if (!e || typeof e !== "object") continue;
     if (e.kind === "tool") {
       const item = { kind: "tool", tool: e.tool, text: e.text, status: "running", output: "", ms: null };
       tools[e.id] = item;
       out.push(item);
     } else if (e.kind === "tool_end" && tools[e.id]) {
-      Object.assign(tools[e.id], { status: e.ok ? "ok" : "failed", output: e.text || "", ms: typeof e.ms === "number" ? e.ms : null });
+      Object.assign(tools[e.id], {
+        status: e.ok ? "ok" : "failed",
+        output: e.text || "",
+        ms: typeof e.ms === "number" ? e.ms : null,
+      });
     } else if (e.kind === "text" || e.kind === "error") {
       out.push({ kind: e.kind, text: e.text });
     }

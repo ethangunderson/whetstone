@@ -5,7 +5,11 @@ import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises
 import { join } from "node:path";
 
 async function readJson(path, fallback) {
-  try { return JSON.parse(await readFile(path, "utf8")); } catch { return fallback; }
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    return fallback;
+  }
 }
 
 export async function openStore(dir) {
@@ -40,7 +44,7 @@ export async function openStore(dir) {
     },
     readControl() {
       return readJson(join(dir, "control.json"), {});
-    }
+    },
   };
 }
 

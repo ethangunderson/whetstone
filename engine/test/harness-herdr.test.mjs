@@ -1,12 +1,13 @@
 // The herdr harness runs each lane as a live, interactive agent in a Herdr
 // Core terminal. These tests drive it with a fake `hc` and a fake inbox.
-import { test } from "node:test";
+
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { createHerdrHarness, terminalName, replyProtocol } from "../harness/herdr.mjs";
+import { createHerdrHarness, replyProtocol, terminalName } from "../harness/herdr.mjs";
 import { createInbox } from "../inbox.mjs";
 
 // What a well-behaved agent does with a message: write the reply file it was
@@ -27,20 +28,32 @@ function fakeHc({ inbox, behave = {} } = {}) {
   let news = [];
   let wake = null;
   let n = 20;
-  const emit = (item) => { news.push(item); if (wake) wake(); };
+  const emit = (item) => {
+    news.push(item);
+    if (wake) wake();
+  };
   // A turn ending (or blocking, or erroring) is news; starting work isn't.
   const setStatus = (term, status) => {
     term.status = status;
     if (status !== "working") emit({ terminal: term.address, reason: "status", status, ended: true });
   };
-  const exit = (term) => { term.state = "finished"; emit({ terminal: term.address, reason: "exit", status: null, ended: true, exit_code: 0 }); };
+  const exit = (term) => {
+    term.state = "finished";
+    emit({ terminal: term.address, reason: "exit", status: null, ended: true, exit_code: 0 });
+  };
   const respond = async (term, message) => {
     const script = behave[term.name] || behave.default || "reply";
     const { file, done } = parseAsk(message);
     term.messages.push(message);
     if (typeof script === "function") return script({ term, message, file, done, inbox, setStatus, exit });
-    if (script === "silent") { setStatus(term, "idle"); return; }
-    if (script === "exit") { exit(term); return; }
+    if (script === "silent") {
+      setStatus(term, "idle");
+      return;
+    }
+    if (script === "exit") {
+      exit(term);
+      return;
+    }
     await sleep(5);
     // Like an agent's `cat > file`: the folder has to exist already.
     await writeFile(file, "reply from " + term.name + " #" + term.messages.length);
@@ -53,7 +66,14 @@ function fakeHc({ inbox, behave = {} } = {}) {
     const nameArg = (flag) => args[args.indexOf(flag) + 1];
     if (cmd === "run") {
       const name = nameArg("--name");
-      const term = { name, address: "t" + (++n), state: "live", status: "working", messages: [], argv: args.slice(args.indexOf("--") + 1) };
+      const term = {
+        name,
+        address: "t" + ++n,
+        state: "live",
+        status: "working",
+        messages: [],
+        argv: args.slice(args.indexOf("--") + 1),
+      };
       terms[name] = term;
       respond(term, args[args.length - 1]);
       return JSON.stringify({ address: term.address, name, state: "live" });
@@ -61,12 +81,20 @@ function fakeHc({ inbox, behave = {} } = {}) {
     if (cmd === "wait") {
       if (!news.length) {
         const seconds = Number(nameArg("--timeout"));
-        await new Promise((resolve) => { wake = resolve; setTimeout(resolve, seconds * 1000); });
+        await new Promise((resolve) => {
+          wake = resolve;
+          setTimeout(resolve, seconds * 1000);
+        });
         wake = null;
       }
       const children = news;
       news = [];
-      return JSON.stringify({ children, ended: children.length > 0, reason: children.length ? "children" : "timeout", terminal: args[args.length - 1] });
+      return JSON.stringify({
+        children,
+        ended: children.length > 0,
+        reason: children.length ? "children" : "timeout",
+        terminal: args[args.length - 1],
+      });
     }
     if (cmd === "send") {
       const name = args[args.length - 2];
@@ -79,12 +107,27 @@ function fakeHc({ inbox, behave = {} } = {}) {
     const t = terms[args[args.length - 1]];
     if (cmd === "get") {
       if (!t) throw Object.assign(new Error("not found"), { code: 3 });
-      return JSON.stringify({ address: t.address, name: t.name, state: t.state, status: { app: "pi", state: t.status } });
+      return JSON.stringify({
+        address: t.address,
+        name: t.name,
+        state: t.state,
+        status: { app: "pi", state: t.status },
+      });
     }
     if (cmd === "read") return "last lines of " + t.name + "\nError: 529 overloaded";
-    if (cmd === "interrupt") { t.interrupted = (t.interrupted || 0) + 1; setStatus(t, "idle"); return JSON.stringify({ outcome: "stopped" }); }
-    if (cmd === "kill") { t.state = "finished"; return "{}"; }
-    if (cmd === "rm") { delete terms[t.name]; return "{}"; }
+    if (cmd === "interrupt") {
+      t.interrupted = (t.interrupted || 0) + 1;
+      setStatus(t, "idle");
+      return JSON.stringify({ outcome: "stopped" });
+    }
+    if (cmd === "kill") {
+      t.state = "finished";
+      return "{}";
+    }
+    if (cmd === "rm") {
+      delete terms[t.name];
+      return "{}";
+    }
     throw new Error("unexpected hc " + cmd);
   }
   return { hc, calls, terms, setStatus, exit };
@@ -95,10 +138,31 @@ async function setup(opts = {}) {
   const inbox = createInbox();
   const fake = fakeHc({ inbox, behave: opts.behave });
   const harness = createHerdrHarness({
-    hc: fake.hc, inbox, engine: "ws-abc123-engine", path: "/bin:/opt/pi/bin", bins: { pi: "/opt/pi/bin/pi" },
-    labels: ["herdr.space=sp1"], pollMs: 5, waitSeconds: 0.05, nudgeAfterMs: 60, timeoutMs: 3000, ...opts.harness
+    hc: fake.hc,
+    inbox,
+    engine: "ws-abc123-engine",
+    path: "/bin:/opt/pi/bin",
+    bins: { pi: "/opt/pi/bin/pi" },
+    labels: ["herdr.space=sp1"],
+    pollMs: 5,
+    waitSeconds: 0.05,
+    nudgeAfterMs: 60,
+    timeoutMs: 3000,
+    ...opts.harness,
   });
-  const base = { runId: "csv-export-20261105-1", runDir, key: "draft-claude", lane: "claude", role: "writer", cwd: runDir, system: "ROLE", model: "claude-bridge/claude-sonnet-5-5", effort: "medium", readOnly: false, prompt: "Implement it." };
+  const base = {
+    runId: "csv-export-20261105-1",
+    runDir,
+    key: "draft-claude",
+    lane: "claude",
+    role: "writer",
+    cwd: runDir,
+    system: "ROLE",
+    model: "claude-bridge/claude-sonnet-5-5",
+    effort: "medium",
+    readOnly: false,
+    prompt: "Implement it.",
+  };
   return { runDir, inbox, fake, harness, base };
 }
 
@@ -111,7 +175,12 @@ test("terminalName is short, stable per run and valid for hc", () => {
 });
 
 test("replyProtocol tells the agent where to write and what to send", () => {
-  const text = replyProtocol({ engine: "ws-e", file: "/r/replies/draft-claude-k1.md", key: "draft-claude", token: "k1" });
+  const text = replyProtocol({
+    engine: "ws-e",
+    file: "/r/replies/draft-claude-k1.md",
+    key: "draft-claude",
+    token: "k1",
+  });
   const { file, done } = parseAsk(text + "\n");
   assert.equal(file, "/r/replies/draft-claude-k1.md");
   assert.equal(done, "done draft-claude k1");
@@ -140,7 +209,14 @@ test("a first call starts a live pi lane in Herdr and returns the reply file's t
 
 test("reviewers get read-only tools and a terminal named for their stage", async () => {
   const { harness, base, fake } = await setup();
-  await harness.run({ ...base, key: "r1-review-codex", lane: "codex", role: "reviewer", readOnly: true, resume: false });
+  await harness.run({
+    ...base,
+    key: "r1-review-codex",
+    lane: "codex",
+    role: "reviewer",
+    readOnly: true,
+    resume: false,
+  });
   const run = fake.calls.find((c) => c[0] === "run");
   assert.equal(run[run.indexOf("--name") + 1], terminalName(base.runId, "r1-review-codex"));
   assert.equal(run[run.indexOf("--tools") + 1], "read,grep,find,ls,bash");
@@ -149,7 +225,13 @@ test("reviewers get read-only tools and a terminal named for their stage", async
 test("a resumed call sends the next step into the same live lane", async () => {
   const { harness, base, fake } = await setup();
   const first = await harness.run({ ...base, resume: false });
-  const second = await harness.run({ ...base, key: "critique-claude", resume: true, session: first.sessionId, prompt: "Compare." });
+  const second = await harness.run({
+    ...base,
+    key: "critique-claude",
+    resume: true,
+    session: first.sessionId,
+    prompt: "Compare.",
+  });
   assert.equal(second.ok, true, second.error);
   assert.match(second.text, /#2$/);
   const send = fake.calls.find((c) => c[0] === "send");
@@ -160,7 +242,13 @@ test("a resumed call sends the next step into the same live lane", async () => {
 
 test("resuming a lane whose terminal is gone starts a new one and says context was lost", async () => {
   const { harness, base, fake } = await setup();
-  const r = await harness.run({ ...base, key: "integrate", resume: true, session: "ws-gone00-claude", prompt: "Integrate." });
+  const r = await harness.run({
+    ...base,
+    key: "integrate",
+    resume: true,
+    session: "ws-gone00-claude",
+    prompt: "Integrate.",
+  });
   assert.equal(r.ok, true, r.error);
   const run = fake.calls.find((c) => c[0] === "run");
   assert.match(run[run.length - 1], /earlier conversation is gone/i);
@@ -171,13 +259,13 @@ test("stale or foreign done lines don't complete the wrong step", async () => {
     behave: {
       default: async ({ file, done, inbox }) => {
         inbox.push("done draft-claude oldtoken");
-        inbox.push("<hc from=\"t9\">chatter</hc>");
+        inbox.push('<hc from="t9">chatter</hc>');
         await sleep(20);
         await mkdir(dirname(file), { recursive: true });
         await writeFile(file, "the real reply");
         inbox.push(done);
-      }
-    }
+      },
+    },
   });
   const r = await harness.run({ ...base, resume: false });
   assert.equal(r.text, "the real reply");
@@ -198,12 +286,15 @@ test("a nudged lane that then reports succeeds", async () => {
     behave: {
       default: async ({ term, file, done, inbox }) => {
         asks += 1;
-        if (asks === 1) { term.status = "idle"; return; }
+        if (asks === 1) {
+          term.status = "idle";
+          return;
+        }
         await mkdir(dirname(file), { recursive: true });
         await writeFile(file, "late but here");
         inbox.push(done);
-      }
-    }
+      },
+    },
   });
   const r = await harness.run({ ...base, resume: false });
   assert.equal(r.ok, true, r.error);
@@ -227,12 +318,19 @@ test("a done line without the reply file gets one reminder, then fails clearly",
 
 test("a lane that reports before writing its file can fix it and report again", async () => {
   let asks = 0;
-  const { harness, base } = await setup({ behave: { default: async ({ file, done, inbox }) => {
-    asks += 1;
-    if (asks === 1) { inbox.push(done); return; }
-    await writeFile(file, "written on the second try");
-    inbox.push(done);
-  } } });
+  const { harness, base } = await setup({
+    behave: {
+      default: async ({ file, done, inbox }) => {
+        asks += 1;
+        if (asks === 1) {
+          inbox.push(done);
+          return;
+        }
+        await writeFile(file, "written on the second try");
+        inbox.push(done);
+      },
+    },
+  });
   const r = await harness.run({ ...base, resume: false });
   assert.equal(r.ok, true, r.error);
   assert.equal(r.text, "written on the second try");
@@ -240,7 +338,10 @@ test("a lane that reports before writing its file can fix it and report again", 
 
 test("pause now interrupts the lane, and lifting the pause tells it to continue", async () => {
   let control = {};
-  const { harness, base, fake, inbox } = await setup({ harness: { nudgeAfterMs: 10_000 }, behave: { default: async () => {} } });
+  const { harness, base, fake, inbox } = await setup({
+    harness: { nudgeAfterMs: 10_000 },
+    behave: { default: async () => {} },
+  });
   const running = harness.run({ ...base, resume: false, control: async () => control });
   await sleep(30);
   control = { pause: "now" };
@@ -263,7 +364,10 @@ test("pause now interrupts the lane, and lifting the pause tells it to continue"
 
 test("stop interrupts the lane and fails the call as stopped", async () => {
   let control = {};
-  const { harness, base, fake } = await setup({ harness: { nudgeAfterMs: 10_000 }, behave: { default: async () => {} } });
+  const { harness, base, fake } = await setup({
+    harness: { nudgeAfterMs: 10_000 },
+    behave: { default: async () => {} },
+  });
   const running = harness.run({ ...base, resume: false, control: async () => control });
   await sleep(20);
   control = { stop: true };
@@ -291,15 +395,25 @@ test("reviewer and helper terminals close as soon as their call ends; writer lan
 test("the lane's terminal is reported as soon as it starts, before the step finishes", async () => {
   let reported = null;
   let finished = false;
-  const { harness, base } = await setup({ behave: { default: async ({ file, done, inbox }) => {
-    await sleep(40);
-    assert.ok(reported, "reported before the reply");
-    await mkdir(dirname(file), { recursive: true });
-    await writeFile(file, "ok");
-    finished = true;
-    inbox.push(done);
-  } } });
-  const r = await harness.run({ ...base, resume: false, onTerminal: (t) => { reported = t; } });
+  const { harness, base } = await setup({
+    behave: {
+      default: async ({ file, done, inbox }) => {
+        await sleep(40);
+        assert.ok(reported, "reported before the reply");
+        await mkdir(dirname(file), { recursive: true });
+        await writeFile(file, "ok");
+        finished = true;
+        inbox.push(done);
+      },
+    },
+  });
+  const r = await harness.run({
+    ...base,
+    resume: false,
+    onTerminal: (t) => {
+      reported = t;
+    },
+  });
   assert.ok(finished);
   assert.equal(reported, r.terminal);
 });
@@ -308,12 +422,17 @@ test("the lane's terminal is reported as soon as it starts, before the step fini
 
 test("lanes are watched with hc wait --children any, not by polling hc get", async () => {
   // hc get is only a one-off look after nudgeAfterMs of quiet; keep that out of range here.
-  const { harness, base, fake } = await setup({ harness: { nudgeAfterMs: 10_000 }, behave: { default: async ({ term, file, done, inbox, setStatus }) => {
-    await sleep(300); // a long step: a poller would call hc get many times here
-    await writeFile(file, "slow reply");
-    inbox.push(done);
-    setStatus(term, "done");
-  } } });
+  const { harness, base, fake } = await setup({
+    harness: { nudgeAfterMs: 10_000 },
+    behave: {
+      default: async ({ term, file, done, inbox, setStatus }) => {
+        await sleep(300); // a long step: a poller would call hc get many times here
+        await writeFile(file, "slow reply");
+        inbox.push(done);
+        setStatus(term, "done");
+      },
+    },
+  });
   const r = await harness.run({ ...base, resume: false });
   assert.equal(r.ok, true, r.error);
   assert.equal(fake.calls.filter((c) => c[0] === "get").length, 0, "no status polling");
@@ -329,12 +448,14 @@ test("lanes start with --no-notify: the watcher gets their news, so hc's notes w
 });
 
 test("two lanes at once each get their own news", async () => {
-  const { harness, base, fake } = await setup({ behave: {
-    [terminalName("csv-export-20261105-1", "codex")]: "exit"
-  } });
+  const { harness, base, fake } = await setup({
+    behave: {
+      [terminalName("csv-export-20261105-1", "codex")]: "exit",
+    },
+  });
   const [claude, codex] = await Promise.all([
     harness.run({ ...base, resume: false }),
-    harness.run({ ...base, key: "draft-codex", lane: "codex", resume: false })
+    harness.run({ ...base, key: "draft-codex", lane: "codex", resume: false }),
   ]);
   assert.equal(claude.ok, true, claude.error);
   assert.equal(codex.ok, false);
@@ -345,15 +466,21 @@ test("two lanes at once each get their own news", async () => {
 test("a blocked lane is reported as needing the person and is not nudged", async () => {
   const statuses = [];
   let unblock;
-  const { harness, base, fake } = await setup({ behave: { default: async ({ term, file, done, inbox, setStatus }) => {
-    if (term.messages.length > 1) return; // ignores nudges
-    setStatus(term, "blocked");
-    await new Promise((r) => { unblock = r; });
-    term.status = "working";
-    await writeFile(file, "after the person answered");
-    inbox.push(done);
-    setStatus(term, "done");
-  } } });
+  const { harness, base, fake } = await setup({
+    behave: {
+      default: async ({ term, file, done, inbox, setStatus }) => {
+        if (term.messages.length > 1) return; // ignores nudges
+        setStatus(term, "blocked");
+        await new Promise((r) => {
+          unblock = r;
+        });
+        term.status = "working";
+        await writeFile(file, "after the person answered");
+        inbox.push(done);
+        setStatus(term, "done");
+      },
+    },
+  });
   const running = harness.run({ ...base, resume: false, onStatus: (s) => statuses.push(s) });
   await sleep(200); // well past nudgeAfterMs
   assert.deepEqual(statuses, ["blocked"]);
@@ -366,7 +493,9 @@ test("a blocked lane is reported as needing the person and is not nudged", async
 
 test("an error is retried once; a second error fails with what the screen said", async () => {
   const statuses = [];
-  const { harness, base, fake } = await setup({ behave: { default: ({ term, setStatus }) => setStatus(term, "error") } });
+  const { harness, base, fake } = await setup({
+    behave: { default: ({ term, setStatus }) => setStatus(term, "error") },
+  });
   const r = await harness.run({ ...base, resume: false, onStatus: (s) => statuses.push(s) });
   assert.equal(r.ok, false);
   assert.match(r.error, /error/i);
@@ -377,13 +506,17 @@ test("an error is retried once; a second error fails with what the screen said",
 
 test("an error followed by a good retry succeeds", async () => {
   let tries = 0;
-  const { harness, base } = await setup({ behave: { default: async ({ term, file, done, inbox, setStatus }) => {
-    tries += 1;
-    if (tries === 1) return setStatus(term, "error");
-    await writeFile(file, "retried");
-    inbox.push(done);
-    setStatus(term, "done");
-  } } });
+  const { harness, base } = await setup({
+    behave: {
+      default: async ({ term, file, done, inbox, setStatus }) => {
+        tries += 1;
+        if (tries === 1) return setStatus(term, "error");
+        await writeFile(file, "retried");
+        inbox.push(done);
+        setStatus(term, "done");
+      },
+    },
+  });
   const r = await harness.run({ ...base, resume: false });
   assert.equal(r.ok, true, r.error);
   assert.equal(r.text, "retried");
@@ -393,7 +526,7 @@ test("the first message to every new lane forbids starting agents of its own", a
   const starts = [
     {},
     { key: "r1-review-codex", lane: "codex", role: "reviewer", readOnly: true },
-    { resume: true, session: "gone-terminal" }
+    { resume: true, session: "gone-terminal" },
   ];
   const firsts = [];
   for (const extra of starts) {

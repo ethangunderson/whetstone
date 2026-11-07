@@ -1,20 +1,29 @@
 // Full runs against a fake harness and a fake workspace. Ported from
 // ~/.pi/agent/workflows/dual-pr.test.mjs, plus checkpoint/resume, pause,
 // stop, step mode and operator questions.
-import { test } from "node:test";
+
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { openStore } from "../store.mjs";
 import { DEFAULT_CONFIG, resolveConfig } from "../config.mjs";
 import { runWhetstone } from "../run.mjs";
+import { openStore } from "../store.mjs";
 
 const clean = { verdict: "OK", summary: "fine", findings: [] };
-const p1 = { verdict: "BLOCK", summary: "bug", findings: [{ severity: "P1", title: "t", location: "a.ex:1", evidence: "e", suggestedFix: "f" }] };
-const p2 = { verdict: "OK_WITH_NOTES", summary: "nit", findings: [{ severity: "P2", title: "n", location: "b.ex:2", evidence: "e", suggestedFix: "f" }] };
+const p1 = {
+  verdict: "BLOCK",
+  summary: "bug",
+  findings: [{ severity: "P1", title: "t", location: "a.ex:1", evidence: "e", suggestedFix: "f" }],
+};
+const p2 = {
+  verdict: "OK_WITH_NOTES",
+  summary: "nit",
+  findings: [{ severity: "P2", title: "n", location: "b.ex:2", evidence: "e", suggestedFix: "f" }],
+};
 const fence = (obj) => "```json\n" + JSON.stringify(obj) + "\n```";
 
 // The fake answers by stage key, the way the real agents would.
@@ -27,11 +36,18 @@ function scriptFor(o) {
       if (outcome === "throw") throw new Error("model not available on this plan");
       return outcome === "ok" ? { text: "OK" } : { ok: false, text: "", error: "403: model not available" };
     }
-    if (key === "triage") return { text: "Rated.\n" + fence({ difficulty: o.triage ?? "hard", reasoning: "because", risks: [] }) };
+    if (key === "triage")
+      return { text: "Rated.\n" + fence({ difficulty: o.triage ?? "hard", reasoning: "because", risks: [] }) };
     if (key.startsWith("converge-")) {
       const who = key.slice(9);
       const items = (o.sources && o.sources[who]) || [];
-      return { text: "plan\n" + fence({ integrator: o.votes[who], items: items.map((source, i) => ({ item: "i" + i, source })) }) + "\nINTEGRATOR: " + o.votes[who] };
+      return {
+        text:
+          "plan\n" +
+          fence({ integrator: o.votes[who], items: items.map((source, i) => ({ item: "i" + i, source })) }) +
+          "\nINTEGRATOR: " +
+          o.votes[who],
+      };
     }
     if (key === "arbiter") return { text: fence({ integrator: "codex", reasoning: "smaller diff", mergedPlan: "p" }) };
     const m = key.match(/^r(\d)-review-(\w+)$/);
@@ -59,14 +75,23 @@ function fakeHarness(script, delays = {}, { messaging = false } = {}) {
         const session = messaging && !req.resume ? "term-" + (req.role === "writer" ? req.lane : req.key) : req.session;
         return { ok: true, sessionId: session, terminal: messaging ? "t-" + lane : undefined, ...out };
       },
-      async close() { closed.push(true); }
-    }
+      async close() {
+        closed.push(true);
+      },
+    },
   };
 }
 
 function fakeWorkspace() {
   const added = [];
-  return { added, workspace: { async addWorktree(w) { added.push(w); } } };
+  return {
+    added,
+    workspace: {
+      async addWorktree(w) {
+        added.push(w);
+      },
+    },
+  };
 }
 
 // Engine tests run both lanes on a fake harness registered as "pi".
@@ -74,11 +99,19 @@ const pi = resolveConfig({ ...DEFAULT_CONFIG, lanes: DEFAULT_CONFIG.lanes.map((l
 
 async function setup(o = {}) {
   const base = await mkdtemp(join(tmpdir(), "whetstone-run-"));
-  const store = o.store || await openStore(join(base, "run"));
+  const store = o.store || (await openStore(join(base, "run")));
   const fake = fakeHarness(scriptFor(o), o.delays ?? { claude: 30, codex: 5 }, { messaging: o.messaging });
   const ws = fakeWorkspace();
   const args = { task: "Add CSV export", repo: join(base, "peepmetrics"), slug: "csv-export", ...o.args };
-  const run = () => runWhetstone({ args, config: o.config || pi, harnesses: { pi: fake.harness }, store, workspace: ws.workspace, pollMs: 5 });
+  const run = () =>
+    runWhetstone({
+      args,
+      config: o.config || pi,
+      harnesses: { pi: fake.harness },
+      store,
+      workspace: ws.workspace,
+      pollMs: 5,
+    });
   return { base, store, fake, ws, args, run };
 }
 
@@ -91,12 +124,19 @@ async function simulate(o) {
 
 async function events(store) {
   if (!existsSync(join(store.dir, "events.jsonl"))) return [];
-  return (await readFile(join(store.dir, "events.jsonl"), "utf8")).trim().split("\n").filter(Boolean).map((l) => JSON.parse(l).text);
+  return (await readFile(join(store.dir, "events.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l).text);
 }
 
 async function until(fn, ms = 3000) {
   const end = Date.now() + ms;
-  while (Date.now() < end) { if (await fn()) return; await sleep(5); }
+  while (Date.now() < end) {
+    if (await fn()) return;
+    await sleep(5);
+  }
   throw new Error("timed out waiting");
 }
 
@@ -112,27 +152,46 @@ test("agreement and clean review skips arbiter, fixes and sign-off", async () =>
 });
 
 test("disagreement goes to arbiter; P1 then clean runs two rounds", async () => {
-  const { result, keys } = await simulate({ votes: { claude: "claude", codex: "codex" }, reviews: [{ claude: p1, codex: clean }, { claude: clean, codex: clean }] });
+  const { result, keys } = await simulate({
+    votes: { claude: "claude", codex: "codex" },
+    reviews: [
+      { claude: p1, codex: clean },
+      { claude: clean, codex: clean },
+    ],
+  });
   assert.equal(result.integrator, "codex");
   assert.ok(keys.includes("arbiter") && keys.includes("r2-review-claude"));
   assert.equal(result.unreviewedFixes, false);
 });
 
 test("two blocking rounds hit the cap and trigger peer sign-off", async () => {
-  const { result, keys, state } = await simulate({ votes: { claude: "codex", codex: "codex" }, reviews: [{ claude: p1, codex: p1 }, { claude: p1, codex: clean }] });
+  const { result, keys, state } = await simulate({
+    votes: { claude: "codex", codex: "codex" },
+    reviews: [
+      { claude: p1, codex: p1 },
+      { claude: p1, codex: clean },
+    ],
+  });
   assert.equal(result.rounds.length, 2);
   assert.ok(keys.includes("signoff") && !keys.includes("r3-review-claude"));
   assert.equal(state.signoff, "approve");
 });
 
 test("P2-only round fixes without a second review", async () => {
-  const { keys } = await simulate({ votes: { claude: "codex", codex: "codex" }, reviews: [{ claude: p2, codex: clean }] });
+  const { keys } = await simulate({
+    votes: { claude: "codex", codex: "codex" },
+    reviews: [{ claude: p2, codex: clean }],
+  });
   assert.ok(keys.includes("r1-fix") && keys.includes("signoff") && !keys.includes("r2-review-claude"));
 });
 
 test("easy and medium use each tier's models and effort for writers and reviewers", async () => {
   for (const difficulty of ["easy", "medium"]) {
-    const { result, calls } = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }], args: { difficulty } });
+    const { result, calls } = await simulate({
+      ...agree,
+      reviews: [{ claude: clean, codex: clean }],
+      args: { difficulty },
+    });
     assert.deepEqual(result.models, { claude: pi.tiers[difficulty].claude, codex: pi.tiers[difficulty].codex });
     for (const who of ["claude", "codex"]) {
       const draft = calls.find((c) => c.key === "draft-" + who);
@@ -153,18 +212,30 @@ test("hard + every lane reachable uses the primary pair and never probes fallbac
 
 test("hard + one lane unreachable switches both lanes to the fallback pair", async () => {
   for (const outcome of ["fail", "throw"]) {
-    const { result, calls, events } = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }], probe: { claude: outcome } });
+    const { result, calls, events } = await simulate({
+      ...agree,
+      reviews: [{ claude: clean, codex: clean }],
+      probe: { claude: outcome },
+    });
     assert.equal(result.models.claude, "claude-bridge/claude-opus-5-5:high", outcome);
     assert.equal(result.models.codex, "openai-codex/gpt-6-sol:high", outcome);
     assert.equal(result.fallback, "fallback");
     assert.ok(calls.every((c) => !String(c.model).includes("fable") || c.key === "probe-claude"));
-    assert.ok(events.some((e) => /Claude can't reach claude-fable-5-1/.test(e) && /opus-5-5/.test(e)), events.join("\n"));
+    assert.ok(
+      events.some((e) => /Claude can't reach claude-fable-5-1/.test(e) && /opus-5-5/.test(e)),
+      events.join("\n"),
+    );
   }
 });
 
 test("primary and fallback both unreachable stops the run instead of downgrading", async () => {
   for (const outcome of ["fail", "throw"]) {
-    const s = await setup({ ...agree, reviews: [{ claude: clean, codex: clean }], probe: { claude: "fail" }, fallback: { claude: outcome } });
+    const s = await setup({
+      ...agree,
+      reviews: [{ claude: clean, codex: clean }],
+      probe: { claude: "fail" },
+      fallback: { claude: outcome },
+    });
     await assert.rejects(s.run(), /Claude lane is unreachable/, outcome);
     assert.equal(s.store.state.status, "failed");
   }
@@ -185,7 +256,13 @@ test("args.fallback forces either pair without probing", async () => {
 });
 
 test("findings from the two reviewers get distinct ids", async () => {
-  const { calls } = await simulate({ ...agree, reviews: [{ claude: p1, codex: p1 }, { claude: clean, codex: clean }] });
+  const { calls } = await simulate({
+    ...agree,
+    reviews: [
+      { claude: p1, codex: p1 },
+      { claude: clean, codex: clean },
+    ],
+  });
   const respond = calls.find((c) => c.key === "r1-respond-claude");
   const ids = [...respond.prompt.matchAll(/\[([A-Z0-9-]+)\]/g)].map((m) => m[1]);
   assert.deepEqual(ids, ["CL1-1", "CX1-1"]);
@@ -194,9 +271,15 @@ test("findings from the two reviewers get distinct ids", async () => {
 test("metrics keep today's schema: timings, votes, plan sources, findings, dispositions", async () => {
   const { state } = await simulate({
     votes: { claude: "codex", codex: "codex" },
-    reviews: [{ claude: p1, codex: p2 }, { claude: clean, codex: clean }],
+    reviews: [
+      { claude: p1, codex: p2 },
+      { claude: clean, codex: clean },
+    ],
     sources: { claude: ["codex", "codex", "claude", "both"], codex: ["codex", "claude", "new"] },
-    dispositions: [{ id: "CL1-1", status: "FIXED" }, { id: "CX1-1", status: "REJECTED" }]
+    dispositions: [
+      { id: "CL1-1", status: "FIXED" },
+      { id: "CX1-1", status: "REJECTED" },
+    ],
   });
   const m = state.metrics;
   assert.equal(m.schema, 1);
@@ -216,22 +299,38 @@ test("metrics keep today's schema: timings, votes, plan sources, findings, dispo
 });
 
 test("arbiter decisions are marked", async () => {
-  const { state } = await simulate({ votes: { claude: "claude", codex: "codex" }, reviews: [{ claude: clean, codex: clean }] });
+  const { state } = await simulate({
+    votes: { claude: "claude", codex: "codex" },
+    reviews: [{ claude: clean, codex: clean }],
+  });
   assert.equal(state.metrics.decidedBy, "arbiter");
   assert.equal(state.decidedBy, "arbiter");
 });
 
 test("history reads as plain sentences through the whole run", async () => {
-  const { events } = await simulate({ ...agree, reviews: [{ claude: p1, codex: clean }, { claude: clean, codex: clean }] });
+  const { events } = await simulate({
+    ...agree,
+    reviews: [
+      { claude: p1, codex: clean },
+      { claude: clean, codex: clean },
+    ],
+  });
   assert.ok(events.length > 10);
-  assert.ok(events.some((e) => /drafting/i.test(e) && /Codex done in/.test(e) && /Claude still working/.test(e)), events.join("\n"));
+  assert.ok(
+    events.some((e) => /drafting/i.test(e) && /Codex done in/.test(e) && /Claude still working/.test(e)),
+    events.join("\n"),
+  );
   assert.ok(events.some((e) => /both drafts done/i.test(e)));
   assert.ok(events.some((e) => /middle road/i.test(e)));
   assert.ok(events.some((e) => /Integrator: Claude/.test(e) && /both agreed/i.test(e)));
   assert.ok(events.some((e) => /review round 1\/2/i.test(e) && /1 finding/.test(e) && /P0\/P1/.test(e)));
   assert.ok(events.some((e) => /applying fixes/i.test(e)));
   assert.ok(events.some((e) => /round 2.*clean/i.test(e)));
-  assert.match(events.at(-1), /^Done · whetstone\/csv-export · total \d+s$/, "paths stay in the report, not the history");
+  assert.match(
+    events.at(-1),
+    /^Done · whetstone\/csv-export · total \d+s$/,
+    "paths stay in the report, not the history",
+  );
 });
 
 // ---- New in the engine -----------------------------------------------------
@@ -253,21 +352,33 @@ test("a run started from a Linear issue records the issue for the pane", async (
 test("the engine creates the lane and final worktrees itself", async () => {
   const { ws, args } = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }] });
   const root = join(args.repo, "..", ".whetstone", "peepmetrics-csv-export");
-  assert.deepEqual(ws.added.map((w) => [w.path, w.branch, w.from]), [
-    [join(root, "claude"), "whetstone/csv-export-claude", "HEAD"],
-    [join(root, "codex"), "whetstone/csv-export-codex", "HEAD"],
-    [join(root, "final"), "whetstone/csv-export", "whetstone/csv-export-claude"]
-  ]);
+  assert.deepEqual(
+    ws.added.map((w) => [w.path, w.branch, w.from]),
+    [
+      [join(root, "claude"), "whetstone/csv-export-claude", "HEAD"],
+      [join(root, "codex"), "whetstone/csv-export-codex", "HEAD"],
+      [join(root, "final"), "whetstone/csv-export", "whetstone/csv-export-claude"],
+    ],
+  );
 });
 
 test("writers keep one session per lane; reviewers and helpers get fresh ones", async () => {
-  const { calls } = await simulate({ ...agree, reviews: [{ claude: p1, codex: clean }, { claude: clean, codex: clean }] });
+  const { calls } = await simulate({
+    ...agree,
+    reviews: [
+      { claude: p1, codex: clean },
+      { claude: clean, codex: clean },
+    ],
+  });
   for (const who of ["claude", "codex"]) {
     const draft = calls.find((c) => c.key === "draft-" + who);
     assert.equal(draft.resume, false);
     const later = calls.filter((c) => c.lane === who && c.role === "writer" && c !== draft);
     assert.ok(later.length >= 3);
-    assert.ok(later.every((c) => c.resume === true && c.session === draft.session), who);
+    assert.ok(
+      later.every((c) => c.resume === true && c.session === draft.session),
+      who,
+    );
   }
   const reviews = calls.filter((c) => c.role === "reviewer");
   assert.ok(reviews.every((c) => c.resume === false && c.readOnly === true));
@@ -296,39 +407,105 @@ test("harness calls get the run's session folder and a raw log per stage", async
 test("the story keeps what each stage decided, for the pane", async () => {
   const { state } = await simulate({
     votes: { claude: "codex", codex: "codex" },
-    reviews: [{ claude: p1, codex: clean }, { claude: clean, codex: clean }],
+    reviews: [
+      { claude: p1, codex: clean },
+      { claude: clean, codex: clean },
+    ],
     override: {
-      "draft-claude": () => ({ text: "Built it.\n" + fence({ approach: "Stream rows.", choices: ["no library"], weakSpots: ["memory"] }) }),
+      "draft-claude": () => ({
+        text: "Built it.\n" + fence({ approach: "Stream rows.", choices: ["no library"], weakSpots: ["memory"] }),
+      }),
       "draft-codex": () => ({ text: "Plain prose only.\nMore." }),
-      "critique-claude": () => ({ text: fence({ peerBetter: ["their tests"], mineBetter: ["streaming"], middleRoad: "Stream with their tests." }) + "\nBASE: codex" }),
-      "converge-claude": () => ({ text: fence({ integrator: "codex", why: "Smaller diff.", concessions: ["their tests"], holding: [], items: [{ item: "stream rows", source: "claude" }] }) + "\nINTEGRATOR: codex" }),
-      "converge-codex": () => ({ text: fence({ integrator: "codex", why: "Mine has the tests.", concessions: ["streaming"], holding: ["header casing"], items: [{ item: "stream rows", source: "claude" }, { item: "tests", source: "codex" }, { item: "BOM", source: "new" }] }) + "\nINTEGRATOR: codex" }),
-      "r1-respond-claude": () => ({ text: fence({ positions: [{ id: "CL1-1", position: "ACCEPT", why: "Real crash." }] }) }),
-      "r1-respond-codex": () => ({ text: fence({ positions: [{ id: "CL1-1", position: "MODIFY", why: "Guard earlier." }] }) }),
-      "r1-fix": () => ({ text: fence({ dispositions: [{ id: "CL1-1", status: "FIXED", why: "Guarded empty input." }] }) })
-    }
+      "critique-claude": () => ({
+        text:
+          fence({ peerBetter: ["their tests"], mineBetter: ["streaming"], middleRoad: "Stream with their tests." }) +
+          "\nBASE: codex",
+      }),
+      "converge-claude": () => ({
+        text:
+          fence({
+            integrator: "codex",
+            why: "Smaller diff.",
+            concessions: ["their tests"],
+            holding: [],
+            items: [{ item: "stream rows", source: "claude" }],
+          }) + "\nINTEGRATOR: codex",
+      }),
+      "converge-codex": () => ({
+        text:
+          fence({
+            integrator: "codex",
+            why: "Mine has the tests.",
+            concessions: ["streaming"],
+            holding: ["header casing"],
+            items: [
+              { item: "stream rows", source: "claude" },
+              { item: "tests", source: "codex" },
+              { item: "BOM", source: "new" },
+            ],
+          }) + "\nINTEGRATOR: codex",
+      }),
+      "r1-respond-claude": () => ({
+        text: fence({ positions: [{ id: "CL1-1", position: "ACCEPT", why: "Real crash." }] }),
+      }),
+      "r1-respond-codex": () => ({
+        text: fence({ positions: [{ id: "CL1-1", position: "MODIFY", why: "Guard earlier." }] }),
+      }),
+      "r1-fix": () => ({
+        text: fence({ dispositions: [{ id: "CL1-1", status: "FIXED", why: "Guarded empty input." }] }),
+      }),
+    },
   });
   const story = state.story;
   assert.deepEqual(story.drafts.claude, { approach: "Stream rows.", choices: ["no library"], weakSpots: ["memory"] });
   assert.equal(story.drafts.codex.approach, "Plain prose only.");
-  assert.deepEqual(story.critiques.claude, { peerBetter: ["their tests"], mineBetter: ["streaming"], middleRoad: "Stream with their tests.", base: "codex" });
+  assert.deepEqual(story.critiques.claude, {
+    peerBetter: ["their tests"],
+    mineBetter: ["streaming"],
+    middleRoad: "Stream with their tests.",
+    base: "codex",
+  });
   assert.deepEqual(story.converge.codex.holding, ["header casing"]);
-  assert.deepEqual(story.plan, { from: "codex", items: [{ item: "stream rows", source: "claude" }, { item: "tests", source: "codex" }, { item: "BOM", source: "new" }] });
-  assert.deepEqual(story.selection, { integrator: "codex", decidedBy: "consensus", reasons: { claude: "Smaller diff.", codex: "Mine has the tests." }, arbiter: null });
+  assert.deepEqual(story.plan, {
+    from: "codex",
+    items: [
+      { item: "stream rows", source: "claude" },
+      { item: "tests", source: "codex" },
+      { item: "BOM", source: "new" },
+    ],
+  });
+  assert.deepEqual(story.selection, {
+    integrator: "codex",
+    decidedBy: "consensus",
+    reasons: { claude: "Smaller diff.", codex: "Mine has the tests." },
+    arbiter: null,
+  });
   const f = state.rounds[0].findings[0];
-  assert.deepEqual(f.positions, { claude: { position: "ACCEPT", why: "Real crash." }, codex: { position: "MODIFY", why: "Guard earlier." } });
+  assert.deepEqual(f.positions, {
+    claude: { position: "ACCEPT", why: "Real crash." },
+    codex: { position: "MODIFY", why: "Guard earlier." },
+  });
   assert.equal(f.disposition, "FIXED");
   assert.equal(f.why, "Guarded empty input.");
 });
 
 test("the arbiter's reasoning goes into the story", async () => {
-  const { state } = await simulate({ votes: { claude: "claude", codex: "codex" }, reviews: [{ claude: clean, codex: clean }] });
+  const { state } = await simulate({
+    votes: { claude: "claude", codex: "codex" },
+    reviews: [{ claude: clean, codex: clean }],
+  });
   assert.equal(state.story.selection.decidedBy, "arbiter");
   assert.equal(state.story.selection.arbiter, "smaller diff");
 });
 
 test("stage prompts ask for the summaries the story needs", async () => {
-  const { calls } = await simulate({ ...agree, reviews: [{ claude: p1, codex: clean }, { claude: clean, codex: clean }] });
+  const { calls } = await simulate({
+    ...agree,
+    reviews: [
+      { claude: p1, codex: clean },
+      { claude: clean, codex: clean },
+    ],
+  });
   const prompt = (key) => calls.find((c) => c.key === key).prompt;
   assert.match(prompt("draft-claude"), /"approach"/);
   assert.match(prompt("critique-claude"), /"peerBetter"/);
@@ -341,7 +518,11 @@ test("resumed stages that move directories say where to work", async () => {
   const { calls, store } = await simulate({ ...agree, reviews: [{ claude: p2, codex: clean }] });
   const finalPath = store.state.finalPath;
   for (const key of ["integrate", "r1-fix"]) {
-    assert.match(calls.find((c) => c.key === key).prompt, new RegExp("cd " + finalPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), key);
+    assert.match(
+      calls.find((c) => c.key === key).prompt,
+      new RegExp("cd " + finalPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      key,
+    );
   }
 });
 
@@ -354,7 +535,11 @@ test("stage outputs are saved as numbered files in the report folder", async () 
 
 test("state.json stays small: stage replies live in the report files", async () => {
   const big = "x".repeat(200_000);
-  const { store } = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }], override: { "draft-claude": () => ({ text: big }), "draft-codex": () => ({ text: big }) } });
+  const { store } = await simulate({
+    ...agree,
+    reviews: [{ claude: clean, codex: clean }],
+    override: { "draft-claude": () => ({ text: big }), "draft-codex": () => ({ text: big }) },
+  });
   const onDisk = await readFile(join(store.dir, "state.json"), "utf8");
   assert.ok(onDisk.length < 100_000, "state.json is " + onDisk.length + " bytes");
   assert.equal(JSON.parse(onDisk).results["draft-claude"].text, undefined);
@@ -364,8 +549,14 @@ test("state.json stays small: stage replies live in the report files", async () 
 test("an invalid structured reply is re-asked once in the same session", async () => {
   let n = 0;
   const { calls, result } = await simulate({
-    ...agree, reviews: [{ claude: clean, codex: clean }],
-    override: { triage: (req) => (++n === 1 ? { text: "it's medium I think" } : { text: fence({ difficulty: "easy", reasoning: "small", risks: [] }) }) }
+    ...agree,
+    reviews: [{ claude: clean, codex: clean }],
+    override: {
+      triage: (req) =>
+        ++n === 1
+          ? { text: "it's medium I think" }
+          : { text: fence({ difficulty: "easy", reasoning: "small", risks: [] }) },
+    },
   });
   const triage = calls.filter((c) => c.key === "triage");
   assert.equal(triage.length, 2);
@@ -375,13 +566,24 @@ test("an invalid structured reply is re-asked once in the same session", async (
 });
 
 test("a reviewer that never returns valid JSON counts as an UNKNOWN verdict and triggers responses", async () => {
-  const { keys, result } = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }, { claude: clean, codex: clean }], override: { "r1-review-codex": () => ({ text: "looks fine" }) } });
+  const { keys, result } = await simulate({
+    ...agree,
+    reviews: [
+      { claude: clean, codex: clean },
+      { claude: clean, codex: clean },
+    ],
+    override: { "r1-review-codex": () => ({ text: "looks fine" }) },
+  });
   assert.equal(result.rounds[0].verdicts.codex, "UNKNOWN");
   assert.ok(keys.includes("r1-respond-claude"));
 });
 
 test("a failed writer stage fails the run and records why", async () => {
-  const s = await setup({ ...agree, reviews: [{ claude: clean, codex: clean }], override: { "draft-codex": () => ({ ok: false, text: "", error: "rate limited" }) } });
+  const s = await setup({
+    ...agree,
+    reviews: [{ claude: clean, codex: clean }],
+    override: { "draft-codex": () => ({ ok: false, text: "", error: "rate limited" }) },
+  });
   await assert.rejects(s.run(), /Codex draft failed: rate limited/);
   assert.equal(s.store.state.status, "failed");
   assert.match(s.store.state.error, /rate limited/);
@@ -389,7 +591,11 @@ test("a failed writer stage fails the run and records why", async () => {
 
 test("rerunning after a crash reuses finished stages and continues the same sessions", async () => {
   let crash = true;
-  const first = await setup({ ...agree, reviews: [{ claude: clean, codex: clean }], override: { integrate: () => (crash ? { ok: false, text: "", error: "process died" } : { text: "integrated" }) } });
+  const first = await setup({
+    ...agree,
+    reviews: [{ claude: clean, codex: clean }],
+    override: { integrate: () => (crash ? { ok: false, text: "", error: "process died" } : { text: "integrated" }) },
+  });
   await assert.rejects(first.run(), /process died/);
   const draftSession = first.fake.calls.find((c) => c.key === "draft-claude").session;
   crash = false;
@@ -397,7 +603,11 @@ test("rerunning after a crash reuses finished stages and continues the same sess
   const result = await first.run();
   const again = first.fake.calls.slice(before).map((c) => c.key);
   assert.equal(again[0], "integrate");
-  assert.match(first.fake.calls.slice(before)[0].prompt, /INTEGRATOR: claude/, "the peer's converge text is read back for the prompt");
+  assert.match(
+    first.fake.calls.slice(before)[0].prompt,
+    /INTEGRATOR: claude/,
+    "the peer's converge text is read back for the prompt",
+  );
   assert.ok(!again.some((k) => /^(triage|probe-|draft-|critique-|converge-)/.test(k)));
   assert.equal(first.fake.calls.slice(before)[0].session, draftSession);
   assert.equal(first.ws.added.filter((w) => w.path.endsWith("/final")).length, 1, "final worktree created once");
@@ -419,21 +629,37 @@ test("pause after this step holds before the next stage and resumes when cleared
 });
 
 test("stop ends the run as stopped at the next boundary", async () => {
-  const s = await setup({ ...agree, reviews: [{ claude: clean, codex: clean }], args: { difficulty: "easy" }, override: { "draft-claude": async () => { await control(s.store, { stop: true }); return { text: "drafted" }; } } });
+  const s = await setup({
+    ...agree,
+    reviews: [{ claude: clean, codex: clean }],
+    args: { difficulty: "easy" },
+    override: {
+      "draft-claude": async () => {
+        await control(s.store, { stop: true });
+        return { text: "drafted" };
+      },
+    },
+  });
   await assert.rejects(s.run(), /stopped/i);
   assert.equal(s.store.state.status, "stopped");
   assert.ok(!s.fake.calls.some((c) => c.key.startsWith("critique-")));
 });
 
 test("step mode waits for approval before each new step", async () => {
-  const s = await setup({ ...agree, reviews: [{ claude: clean, codex: clean }], args: { difficulty: "easy", stepMode: true } });
+  const s = await setup({
+    ...agree,
+    reviews: [{ claude: clean, codex: clean }],
+    args: { difficulty: "easy", stepMode: true },
+  });
   const running = s.run();
   await until(() => s.store.state.status === "waiting");
   assert.deepEqual(s.store.state.next, { step: 2, name: "Draft" });
   assert.equal(s.fake.calls.length, 0);
   await control(s.store, { approved: 2 });
   await until(() => s.store.state.status === "waiting" && s.store.state.next.step === 3);
-  assert.ok(s.fake.calls.some((c) => c.key === "draft-claude") && !s.fake.calls.some((c) => c.key.startsWith("critique-")));
+  assert.ok(
+    s.fake.calls.some((c) => c.key === "draft-claude") && !s.fake.calls.some((c) => c.key.startsWith("critique-")),
+  );
   await sleep(60);
   await control(s.store, { approved: 6 });
   await running;
@@ -446,13 +672,18 @@ test("step mode waits for approval before each new step", async () => {
 test("a writer's question blocks its lane until the operator answers", async () => {
   let asked = false;
   const s = await setup({
-    ...agree, reviews: [{ claude: clean, codex: clean }], args: { difficulty: "easy" },
+    ...agree,
+    reviews: [{ claude: clean, codex: clean }],
+    args: { difficulty: "easy" },
     override: {
       "draft-claude": (req) => {
-        if (!asked) { asked = true; return { text: "Halfway.\n```question\nInclude archived rows? A) yes B) no. I recommend B.\n```" }; }
+        if (!asked) {
+          asked = true;
+          return { text: "Halfway.\n```question\nInclude archived rows? A) yes B) no. I recommend B.\n```" };
+        }
         return { text: "drafted with answer" };
-      }
-    }
+      },
+    },
   });
   const running = s.run();
   await until(() => s.store.state.question);
@@ -473,7 +704,12 @@ test("a writer's question blocks its lane until the operator answers", async () 
 });
 
 test("state tells the pane what each lane is doing", async () => {
-  const s = await setup({ ...agree, reviews: [{ claude: clean, codex: clean }], args: { difficulty: "easy" }, delays: { claude: 80, codex: 1 } });
+  const s = await setup({
+    ...agree,
+    reviews: [{ claude: clean, codex: clean }],
+    args: { difficulty: "easy" },
+    delays: { claude: 80, codex: 1 },
+  });
   const running = s.run();
   await until(() => s.store.state.lanes?.claude?.status === "working" && s.store.state.lanes.codex.status === "done");
   const lanes = s.store.state.lanes;
@@ -505,7 +741,13 @@ test("harness calls carry the run's id, folder and a live view of control.json",
 });
 
 test("lane terminals are recorded for the pane", async () => {
-  const s = await setup({ ...agree, reviews: [{ claude: clean, codex: clean }], messaging: true, args: { difficulty: "easy" }, delays: { claude: 80, codex: 1 } });
+  const s = await setup({
+    ...agree,
+    reviews: [{ claude: clean, codex: clean }],
+    messaging: true,
+    args: { difficulty: "easy" },
+    delays: { claude: 80, codex: 1 },
+  });
   const running = s.run();
   await until(() => s.store.state.lanes?.claude?.terminal === "t-claude");
   await running;
@@ -513,8 +755,15 @@ test("lane terminals are recorded for the pane", async () => {
 
 test("a stop that interrupts a running stage ends the run as stopped, not failed", async () => {
   const s = await setup({
-    ...agree, reviews: [{ claude: clean, codex: clean }], args: { difficulty: "easy" },
-    override: { "draft-claude": async () => { await control(s.store, { stop: true }); return { ok: false, text: "", error: "stopped by the operator" }; } }
+    ...agree,
+    reviews: [{ claude: clean, codex: clean }],
+    args: { difficulty: "easy" },
+    override: {
+      "draft-claude": async () => {
+        await control(s.store, { stop: true });
+        return { ok: false, text: "", error: "stopped by the operator" };
+      },
+    },
   });
   await assert.rejects(s.run(), /stopped/i);
   assert.equal(s.store.state.status, "stopped");
@@ -525,7 +774,11 @@ test("lanes that can message each other get a direct exchange before converging"
   const converge = calls.find((c) => c.key === "converge-claude").prompt;
   assert.match(converge, /hc send term-codex "\[peer\]/);
   assert.match(converge, /at most 2 messages/);
-  assert.match(converge, /wait for its reply before you write/i, "seen for real: a lane converged before the peer answered");
+  assert.match(
+    converge,
+    /wait for its reply before you write/i,
+    "seen for real: a lane converged before the peer answered",
+  );
   const plain = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }] });
   assert.doesNotMatch(plain.calls.find((c) => c.key === "converge-claude").prompt, /\[peer\]/);
 });
@@ -533,7 +786,12 @@ test("lanes that can message each other get a direct exchange before converging"
 test("the run closes its harnesses when it ends, however it ends", async () => {
   const done = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }], args: { difficulty: "easy" } });
   assert.equal(done.fake.closed.length, 1);
-  const s = await setup({ ...agree, reviews: [{ claude: clean, codex: clean }], args: { difficulty: "easy" }, override: { "draft-codex": () => ({ ok: false, text: "", error: "boom" }) } });
+  const s = await setup({
+    ...agree,
+    reviews: [{ claude: clean, codex: clean }],
+    args: { difficulty: "easy" },
+    override: { "draft-codex": () => ({ ok: false, text: "", error: "boom" }) },
+  });
   await assert.rejects(s.run(), /boom/);
   assert.equal(s.fake.closed.length, 1);
 });
@@ -542,20 +800,27 @@ test("a lane blocked in its terminal shows as needing you, and recovers", async 
   let s;
   const seen = {};
   s = await setup({
-    ...agree, reviews: [{ claude: clean, codex: clean }], args: { difficulty: "easy" },
-    override: { "draft-claude": async (req) => {
-      await req.onStatus("blocked");
-      seen.blocked = s.store.state.lanes.claude.status;
-      await req.onStatus("error");
-      seen.error = s.store.state.lanes.claude.status;
-      await req.onStatus("working");
-      seen.working = s.store.state.lanes.claude.status;
-      return { text: "drafted" };
-    } }
+    ...agree,
+    reviews: [{ claude: clean, codex: clean }],
+    args: { difficulty: "easy" },
+    override: {
+      "draft-claude": async (req) => {
+        await req.onStatus("blocked");
+        seen.blocked = s.store.state.lanes.claude.status;
+        await req.onStatus("error");
+        seen.error = s.store.state.lanes.claude.status;
+        await req.onStatus("working");
+        seen.working = s.store.state.lanes.claude.status;
+        return { text: "drafted" };
+      },
+    },
   });
   await s.run();
   assert.deepEqual(seen, { blocked: "blocked", error: "error", working: "working" });
   const log = await events(s.store);
-  assert.ok(log.some((e) => /Claude needs you in its terminal/.test(e)), log.join("\n"));
+  assert.ok(
+    log.some((e) => /Claude needs you in its terminal/.test(e)),
+    log.join("\n"),
+  );
   assert.ok(log.some((e) => /Claude hit an error/.test(e)));
 });

@@ -23,5 +23,5 @@ export const gitWorkspace = {
     if (await branchExists(repo, branch)) throw new Error("branch already exists: " + branch);
     await mkdir(dirname(path), { recursive: true });
     await git("git", ["-C", repo, "worktree", "add", "-q", "-b", branch, path, from]);
-  }
+  },
 };
