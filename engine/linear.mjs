@@ -9,7 +9,7 @@
 // `app` answers errors as {"error","signedOut"} on stdout. Every `app` request
 // needs the workspace id: without it the default workspace is asked.
 import { execFile } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { accessSync, constants, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -28,20 +28,23 @@ export function parseIssueRef(text) {
   throw new Error(JSON.stringify(ref) + " is not a Linear issue key or URL (like WHE-5 or https://linear.app/<workspace>/issue/WHE-5)");
 }
 
-// The override, else the newest version the Herdr Linear mod installed; null if none.
+// The override, else the newest version the Herdr Linear mod installed whose
+// binary can run (a half-finished update leaves a folder without one); null if none.
 export function findHerdrLinear({ env = process.env, home = homedir() } = {}) {
   if (env[OVERRIDE]) return env[OVERRIDE];
   const dir = join(home, ".local/share/herdr-linear/app");
   let versions;
   try { versions = readdirSync(dir).filter((v) => /^\d+(\.\d+)*$/.test(v)); } catch { return null; }
-  if (!versions.length) return null;
   const parts = (v) => v.split(".").map(Number);
   versions.sort((a, b) => {
     const [x, y] = [parts(a), parts(b)];
     for (let i = 0; i < Math.max(x.length, y.length); i += 1) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0);
     return 0;
   });
-  return join(dir, versions[versions.length - 1], "herdr-linear");
+  for (const v of versions.reverse()) {
+    try { accessSync(join(dir, v, "herdr-linear"), constants.X_OK); return join(dir, v, "herdr-linear"); } catch { /* an older one */ }
+  }
+  return null;
 }
 
 const missing = (bin) => new Error("herdr-linear not found" + (bin ? " at " + bin : "") +
@@ -84,7 +87,13 @@ export function createLinearReader({ bin = findHerdrLinear(), run } = {}) {
       if (!workspaces.length) throw signedOut();
       let urlKey = ref.urlKey;
       if (!urlKey) {
-        const [found] = await call(["issues", "--force", JSON.stringify([ref.key])]);
+        const answer = await call(["issues", "--force", JSON.stringify([ref.key])]);
+        if (answer && answer.error) {
+          if (answer.signedOut) throw signedOut();
+          throw new Error("herdr-linear couldn't look up " + ref.key + ": " + answer.error);
+        }
+        if (!Array.isArray(answer)) throw new Error("herdr-linear gave an answer whetstone can't read: " + JSON.stringify(answer).slice(0, 200));
+        const found = answer.find((r) => String(r && r.key).toUpperCase() === ref.key);
         if (found && found.error) throw new Error("herdr-linear couldn't look up " + ref.key + ": " + found.error);
         if (!found || !found.issue) {
           throw new Error("Linear issue " + ref.key + " not found in your signed-in workspaces (" + workspaces.map((w) => w.urlKey).join(", ") + ")");
@@ -102,11 +111,7 @@ export function createLinearReader({ bin = findHerdrLinear(), run } = {}) {
         url: issue.url || "",
         description: detail.description || "",
         state: issue.state?.name ?? null,
-        workspace: urlKey,
-        project: issue.project?.name ?? null,
-        labels: (detail.labels || []).map((l) => l.name),
-        priority: detail.priorityLabel ?? null,
-        branch: issue.branch ?? null
+        workspace: urlKey
       };
     }
   };

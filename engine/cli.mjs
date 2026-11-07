@@ -19,7 +19,7 @@
 //
 // run options: --repo <path> (default: this git repo), --slug, --base <ref>,
 //   --difficulty easy|medium|hard, --rounds 1|2, --fallback / --no-fallback,
-//   --step-mode, --isolation <text>, --notes <text> (added to the task)
+//   --step-mode, --isolation <text>, --notes <text> (with --issue: added to the task)
 //
 // WHETSTONE_HOME (default ~/.whetstone) holds config.json and runs/<id>/.
 import { execFile } from "node:child_process";
@@ -75,6 +75,7 @@ export function parseRunArgs(argv) {
     }
   }
   if (out.issue && words.length) throw new Error("pass either task text or --issue, not both (add instructions with --notes)");
+  if (out.notes !== undefined && !out.issue) throw new Error("--notes requires --issue");
   if (out.issue) return out;
   if (!words.length) throw new Error("whetstone run needs a task");
   out.task = words.join(" ");
@@ -229,20 +230,19 @@ const commands = {
       args.issue = { key: issue.key, title: issue.title, url: issue.url };
       args.task = issueTask(issue, args.notes);
       args.slug ??= issueSlug(issue);
-    } else if (args.notes) {
-      args.task += "\n\nNotes from the operator:\n" + args.notes;
     }
     args.slug = slugify(args.slug || args.task);
     const id = args.slug + "-" + stamp();
     const store = await openStore(join(RUNS, id));
-    await store.update((s) => { s.id = id; s.args = args; });
+    // state.issue now, not only when the engine starts, so the pane can link it right away.
+    await store.update((s) => { s.id = id; s.args = args; s.issue = args.issue ?? null; });
     if (usesHerdr(await loadConfig())) return launchEngine(store, args);
     return execute(store, args);
   },
 
   // For the start form's preview: the issue a run would get, and its slug.
   async issue([ref, ...rest]) {
-    if (!ref) throw new Error("which issue? pass a key like WHE-5 or a Linear URL");
+    if (!ref || ref.startsWith("--") || rest.some((a) => a !== "--json")) throw new Error("usage: whetstone issue <key|url> [--json]");
     const issue = await createLinearReader().read(ref);
     if (rest.includes("--json")) {
       console.log(JSON.stringify({ ...issue, slug: issueSlug(issue) }, null, 2));

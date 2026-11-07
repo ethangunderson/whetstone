@@ -41,10 +41,9 @@ test("parseRunArgs reads flags and the task text", () => {
 test("parseRunArgs takes an issue instead of task text, with optional notes", () => {
   assert.deepEqual(parseRunArgs(["--issue", "WHE-5"]), { issue: "WHE-5" });
   assert.deepEqual(parseRunArgs(["--issue", "WHE-5", "--notes", "keep it small"]), { issue: "WHE-5", notes: "keep it small" });
-  assert.deepEqual(parseRunArgs(["--notes", "and add a test", "Fix", "it"]), { notes: "and add a test", task: "Fix it" });
+  assert.throws(() => parseRunArgs(["--notes", "and add a test", "Fix", "it"]), /--notes requires --issue/);
   assert.throws(() => parseRunArgs(["--issue", "WHE-5", "Fix", "it"]), /either task text or --issue/);
   assert.throws(() => parseRunArgs(["--issue"]), /--issue needs a value/);
-  assert.throws(() => parseRunArgs(["--notes", "x"]), /task/);
 });
 
 test("slugify matches the engine's branch naming", () => {
@@ -243,12 +242,14 @@ test("issue prints the issue without starting anything", async () => {
   const dir = await home();
   const linear = await fakeHerdrLinear(dir);
   const out = await run("node", [CLI, "issue", "WHE-5", "--json"], { env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HERDR_LINEAR: linear } });
-  const issue = JSON.parse(out.stdout);
-  assert.equal(issue.key, "WHE-5");
-  assert.equal(issue.title, "Lanes must not start");
-  assert.equal(issue.url, "https://linear.app/eg-whetstone/issue/WHE-5/lanes-must-not-start");
-  assert.equal(issue.description, "Lanes start before the engine is ready.");
-  assert.equal(issue.slug, "whe-5-lanes-must-not-start", "the preview shows the slug the run will use");
+  assert.deepEqual(JSON.parse(out.stdout), {
+    key: "WHE-5", title: "Lanes must not start", url: "https://linear.app/eg-whetstone/issue/WHE-5/lanes-must-not-start",
+    description: "Lanes start before the engine is ready.", state: "Todo", workspace: "eg-whetstone",
+    slug: "whe-5-lanes-must-not-start"
+  }, "a stable shape for the start form; the slug is the one the run will use");
+  const bad = await run("node", [CLI, "issue", "WHE-5", "--bogus"], { env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HERDR_LINEAR: linear } }).then(() => null, (e) => e);
+  assert.ok(bad, "unknown arguments are refused");
+  assert.match(bad.stderr, /usage: whetstone issue <key\|url> \[--json\]/);
   const text = await run("node", [CLI, "issue", "WHE-5"], { env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HERDR_LINEAR: linear } });
   assert.match(text.stdout, /^WHE-5 · Lanes must not start\n/);
   const { existsSync } = await import("node:fs");
@@ -269,7 +270,8 @@ test("run --issue gives the lanes the issue and records it on the run", async ()
   assert.equal(spec.name, "Whetstone · whe-5-lanes-must-not-start");
   const id = spec.argv[spec.argv.length - 1];
   assert.match(id, /^whe-5-lanes-must-not-start-/);
-  const { args } = JSON.parse(await readFile(join(dir, "runs", id, "state.json"), "utf8"));
+  const { args, issue } = JSON.parse(await readFile(join(dir, "runs", id, "state.json"), "utf8"));
+  assert.deepEqual(issue, args.issue, "the pane can link the issue before the engine starts");
   assert.equal(args.slug, "whe-5-lanes-must-not-start");
   assert.deepEqual(args.issue, { key: "WHE-5", title: "Lanes must not start", url: "https://linear.app/eg-whetstone/issue/WHE-5/lanes-must-not-start" });
   assert.match(args.task, /^WHE-5: Lanes must not start\n/);

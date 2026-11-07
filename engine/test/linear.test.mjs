@@ -22,9 +22,10 @@ function fake(o = {}) {
   const run = async (args) => {
     calls.push(args);
     if (args[0] === "issues") {
+      if (o.issuesAnswer !== undefined) return JSON.stringify(o.issuesAnswer);
       const [key] = JSON.parse(args[args.length - 1]);
       const issue = o.issue === undefined ? { identifier: key, title: DETAIL.issue.title, url: URL, state: "In Progress", state_type: "started", workspace: "eg-whetstone" } : o.issue;
-      return JSON.stringify([{ key, issue, ...(o.issuesError ? { error: o.issuesError } : {}) }]);
+      return JSON.stringify([{ key: "WHE-1", issue: null }, { key, issue, ...(o.issuesError ? { error: o.issuesError } : {}) }]);
     }
     const req = JSON.parse(args[1]);
     if (req.op === "status") return JSON.stringify({ version: "0.14.3", workspaces: o.workspaces ?? [WS] });
@@ -54,8 +55,8 @@ test("a key is looked up across workspaces, then read in its own workspace", asy
   assert.deepEqual(JSON.parse(calls[2][1]), { op: "detail", issue: "WHE-5", workspace: WS.id }, "the workspace id, not its URL key");
   assert.deepEqual(issue, {
     key: "WHE-5", title: "Lanes must not start", url: URL, description: "Lanes start before the engine is ready.",
-    state: "In Progress", workspace: "eg-whetstone", project: "Live lanes: features", labels: ["Bug"], priority: "High", branch: "ethan/whe-5"
-  });
+    state: "In Progress", workspace: "eg-whetstone"
+  }, "only what a run and the start form's preview use");
 });
 
 test("a URL skips the search: it already names the workspace", async () => {
@@ -70,6 +71,13 @@ test("an issue that can't be found says so", async () => {
   await assert.rejects(fake({ issue: null }).reader.read("WHE-999"), /Linear issue WHE-999 not found in your signed-in workspaces \(eg-whetstone\)/);
   await assert.rejects(fake({ issuesError: "rate limited" }).reader.read("WHE-5"), /herdr-linear couldn't look up WHE-5: rate limited/);
   await assert.rejects(fake({ detail: { error: "Entity not found", signedOut: false } }).reader.read(URL), /herdr-linear couldn't read WHE-5: Entity not found/);
+});
+
+test("an issues answer of the wrong shape fails with a Linear message, not a TypeError", async () => {
+  await assert.rejects(fake({ issuesAnswer: { error: "rate limited" } }).reader.read("WHE-5"), /herdr-linear couldn't look up WHE-5: rate limited/);
+  await assert.rejects(fake({ issuesAnswer: { error: "token revoked", signedOut: true } }).reader.read("WHE-5"), /herdr-linear is not signed in to Linear/);
+  await assert.rejects(fake({ issuesAnswer: { issues: [] } }).reader.read("WHE-5"), /herdr-linear gave an answer whetstone can't read/);
+  await assert.rejects(fake({ issuesAnswer: [{ key: "WHE-6", issue: { identifier: "WHE-6", workspace: "eg-whetstone" } }] }).reader.read("WHE-5"), /Linear issue WHE-5 not found/, "matched by key, not position");
 });
 
 test("signed out of Linear, or of the issue's workspace, says which", async () => {
@@ -93,12 +101,21 @@ test("a real binary's stdout is read even when it exits non-zero", async () => {
   await assert.rejects(createLinearReader({ bin }).read("WHE-5"), /herdr-linear couldn't read Linear: boom/);
 });
 
-test("findHerdrLinear prefers the override, else the newest installed version", async () => {
+test("findHerdrLinear prefers the override, else the newest installed version that can run", async () => {
   const home = await mkdtemp(join(tmpdir(), "whetstone-linear-home-"));
+  const app = join(home, ".local/share/herdr-linear/app");
   assert.equal(findHerdrLinear({ env: { WHETSTONE_HERDR_LINEAR: "/x/hl" }, home }), "/x/hl");
   assert.equal(findHerdrLinear({ env: {}, home }), null, "not installed");
-  for (const v of ["0.9.1", "0.14.3", "0.14.10", "notes"]) await mkdir(join(home, ".local/share/herdr-linear/app", v), { recursive: true });
-  assert.equal(findHerdrLinear({ env: {}, home }), join(home, ".local/share/herdr-linear/app/0.14.10/herdr-linear"));
+  for (const v of ["0.9.1", "0.14.3", "0.14.10", "notes"]) {
+    await mkdir(join(app, v), { recursive: true });
+    await writeFile(join(app, v, "herdr-linear"), "#!/bin/sh\n");
+    await chmod(join(app, v, "herdr-linear"), 0o755);
+  }
+  assert.equal(findHerdrLinear({ env: {}, home }), join(app, "0.14.10/herdr-linear"), "0.14.10 is newer than 0.14.3");
+  await mkdir(join(app, "0.15.0"), { recursive: true });
+  await mkdir(join(app, "0.16.0"), { recursive: true });
+  await writeFile(join(app, "0.16.0", "herdr-linear"), "not executable");
+  assert.equal(findHerdrLinear({ env: {}, home }), join(app, "0.14.10/herdr-linear"), "a half-installed newer version is skipped");
 });
 
 test("the task names the issue, carries its description, then the operator's notes", () => {
