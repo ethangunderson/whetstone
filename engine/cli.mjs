@@ -15,6 +15,8 @@
 //   whetstone stop <id>
 //   whetstone approve <id> [step]        step mode: allow up to <step> (default: the waiting one)
 //   whetstone answer <id> <text…>        answer the open question from a writer
+//   whetstone check [--repo <path>] [--base <ref>] [--json]
+//                                        can a run start here? (repo, base ref, active runs, config, harnesses, tier models)
 //   whetstone doctor                     config and harness check
 //
 // run options: --repo <path> (default: this git repo), --slug, --base <ref>,
@@ -37,6 +39,7 @@ import { createPiHarness } from "./harness/pi.mjs";
 import { createHerdrHarness, terminalName } from "./harness/herdr.mjs";
 import { createInbox } from "./inbox.mjs";
 import { createLinearReader, issueSlug, issueTask } from "./linear.mjs";
+import { harnessChecks, preflight } from "./check.mjs";
 
 const HOME = process.env.WHETSTONE_HOME || join(homedir(), ".whetstone");
 const RUNS = join(HOME, "runs");
@@ -200,6 +203,22 @@ async function gitRoot(dir) {
   return stdout.trim();
 }
 
+async function gitCommit(root, ref) {
+  const { stdout } = await promisify(execFile)("git", ["-C", root, "rev-parse", "--verify", "--quiet", "--short", ref + "^{commit}"]);
+  return stdout.trim();
+}
+
+// Runs record the repo as given; git answers with symlinks resolved (/var → /private/var).
+function realPath(path) {
+  try { return realpathSync(path); } catch { return path; }
+}
+
+function harnessAdapters() {
+  return { pi: createPiHarness(), herdr: { detect: async () => { try { await hc(["ls", "--json"]); return { installed: true }; } catch { return { installed: false }; } } } };
+}
+
+const checkLine = (c) => [(c.ok ? "ok" : "FAIL").padEnd(4), c.what.padEnd(16), c.detail].join("  ").trimEnd();
+
 function stamp(date = new Date()) {
   const p = (n) => String(n).padStart(2, "0");
   return date.getFullYear() + p(date.getMonth() + 1) + p(date.getDate()) + "-" + p(date.getHours()) + p(date.getMinutes()) + p(date.getSeconds());
@@ -334,14 +353,33 @@ const commands = {
     return 0;
   },
 
+  // For the start form. A failed check is still an answer: exit 0, ok:false.
+  async check(argv) {
+    const usage = "usage: whetstone check [--repo <path>] [--base <ref>] [--json]";
+    const opts = { json: false };
+    for (let i = 0; i < argv.length; i += 1) {
+      const a = argv[i];
+      if (a === "--json") opts.json = true;
+      else if ((a === "--repo" || a === "--base") && i + 1 < argv.length) opts[a.slice(2)] = argv[++i];
+      else throw new Error(usage);
+    }
+    const repo = resolve(opts.repo || process.cwd());
+    const result = await preflight({
+      repo,
+      baseRef: opts.base,
+      git: { root: async (dir) => realPath(await gitRoot(dir)), commit: gitCommit },
+      runs: async () => (await allRuns()).map(({ id, state }) => ({ id, repo: realPath(state.repo || state.args?.repo || ""), status: shownStatus(state) })),
+      loadConfig,
+      adapters: harnessAdapters()
+    });
+    if (opts.json) console.log(JSON.stringify(result, null, 2));
+    else result.checks.forEach((c) => console.log(checkLine(c)));
+    return 0;
+  },
+
   async doctor() {
     const config = await loadConfig();
-    const available = { pi: createPiHarness(), herdr: { detect: async () => { try { await hc(["ls", "--json"]); return { installed: true }; } catch { return { installed: false }; } } } };
-    for (const lane of config.lanes) {
-      const h = available[lane.harness];
-      const found = h ? await h.detect() : { installed: false };
-      console.log(lane.name.padEnd(8) + " " + lane.harness.padEnd(12) + " " + (h ? (found.installed ? "ok " + (found.version || "") : "not installed") : "no adapter yet"));
-    }
+    for (const c of await harnessChecks(config.lanes, harnessAdapters())) console.log(checkLine(c));
     return 0;
   }
 };
@@ -349,7 +387,7 @@ const commands = {
 async function main([command, ...rest]) {
   const handler = commands[command];
   if (!handler) {
-    console.error("usage: whetstone run|issue|list|status|pause|resume|stop|approve|answer|doctor (see engine/cli.mjs)");
+    console.error("usage: whetstone run|issue|list|status|pause|resume|stop|approve|answer|check|doctor (see engine/cli.mjs)");
     return 2;
   }
   try {
