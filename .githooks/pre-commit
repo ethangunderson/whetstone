@@ -1,0 +1,15 @@
+#!/bin/sh
+# Fast checks on what is being committed: Biome (format, lint, import order) on
+# staged files and shellcheck on staged shell scripts. pre-push runs the rest.
+# shellcheck source-path=SCRIPTDIR source=find-tools.sh
+. "$(dirname "$0")/find-tools.sh"
+tools=$(find_tools) || exit 1
+"$tools/biome" check --staged --error-on-warnings --no-errors-on-unmatched || exit 1
+
+shell_scripts() { git diff --cached --name-only --diff-filter=ACMR "$@" -- '*.sh' '.githooks/*'; }
+[ -n "$(shell_scripts)" ] || exit 0
+if ! command -v shellcheck >/dev/null; then
+  echo "pre-commit: shellcheck not found: brew install shellcheck" >&2
+  exit 1
+fi
+shell_scripts -z | xargs -0 shellcheck

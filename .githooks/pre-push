@@ -1,0 +1,6 @@
+#!/bin/sh
+# Everything npm run check covers (lint, shellcheck, types, tests) before a push.
+# shellcheck source-path=SCRIPTDIR source=find-tools.sh
+. "$(dirname "$0")/find-tools.sh"
+tools=$(find_tools) || exit 1
+PATH="$tools:$PATH" npm run -s check
