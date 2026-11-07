@@ -306,3 +306,69 @@ test("run --issue fails before any terminal opens when the issue can't be read",
     assert.ok(!existsSync(join(dir, "runs")), "no run folder");
   }
 });
+
+// A git repo with one commit, and a config whose lanes run on a fake pi.
+async function checkSetup() {
+  const dir = await home();
+  const { writeFile: write, chmod } = await import("node:fs/promises");
+  const repo = join(dir, "app");
+  await mkdir(repo);
+  await run("git", ["-C", repo, "init", "-q", "-b", "main"]);
+  await run("git", ["-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first"]);
+  const bin = join(dir, "bin");
+  await mkdir(bin);
+  await write(join(bin, "pi"), "#!/bin/sh\necho 0.9.1\n");
+  await chmod(join(bin, "pi"), 0o755);
+  const tiers = Object.fromEntries(["easy", "medium", "hard"].map((t) => [t, { claude: "c-" + t, codex: "x-" + t }]));
+  await write(join(dir, "config.json"), JSON.stringify({ lanes: [{ id: "claude", harness: "pi" }, { id: "codex", harness: "pi" }], tiers, triage: { lane: "codex", model: "m" }, reporter: { lane: "claude", model: "m" } }));
+  const env = { ...process.env, WHETSTONE_HOME: dir, PATH: bin + ":" + process.env.PATH };
+  const check = (...args) => run("node", [CLI, "check", ...args], { env }).then((r) => r, (e) => e);
+  return { dir, repo, tiers, check };
+}
+
+test("check --json says a clean repo is ready and lists the tier models", async () => {
+  const { repo, tiers, check } = await checkSetup();
+  const out = await check("--repo", repo, "--json");
+  assert.equal(out.code ?? 0, 0);
+  const result = JSON.parse(out.stdout);
+  assert.equal(result.ok, true, JSON.stringify(result.checks));
+  assert.deepEqual(result.checks.map((c) => c.what), ["git repo", "base ref", "no active run", "config", "Claude harness", "Codex harness"]);
+  assert.equal(result.checks[4].detail, "pi 0.9.1");
+  assert.deepEqual(result.tiers, tiers);
+});
+
+test("check --json flags a missing base ref and an active run on the same repo, and still exits 0", async () => {
+  const { dir, repo, check } = await checkSetup();
+  await fakeRun(dir, "busy-1", { status: "running", args: { repo } });
+  const out = await check("--repo", repo, "--base", "nope", "--json");
+  assert.equal(out.code ?? 0, 0, "a failed check is still an answer");
+  const result = JSON.parse(out.stdout);
+  assert.equal(result.ok, false);
+  const failed = result.checks.filter((c) => !c.ok).map((c) => c.what);
+  assert.deepEqual(failed, ["base ref", "no active run"]);
+});
+
+test("check --json on a plain folder fails the git repo check", async () => {
+  const { dir, check } = await checkSetup();
+  const plain = join(dir, "plain");
+  await mkdir(plain);
+  const result = JSON.parse((await check("--repo", plain, "--json")).stdout);
+  assert.equal(result.checks[0].ok, false);
+  assert.equal(result.ok, false);
+});
+
+test("check rejects unknown flags and prints a readable list without --json", async () => {
+  const { repo, check } = await checkSetup();
+  const bad = await check("--repo", repo, "--bogus");
+  assert.notEqual(bad.code ?? 0, 0);
+  assert.match(bad.stderr, /usage: whetstone check/);
+  const text = await check("--repo", repo);
+  assert.match(text.stdout, /ok\s+git repo/);
+  assert.match(text.stdout, /ok\s+Codex harness\s+pi 0.9.1/);
+});
+
+test("doctor reports each lane's harness through the same check", async () => {
+  const { dir } = await checkSetup();
+  const { stdout } = await run("node", [CLI, "doctor"], { env: { ...process.env, WHETSTONE_HOME: dir, PATH: join(dir, "bin") + ":" + process.env.PATH } });
+  assert.match(stdout, /ok\s+Claude harness\s+pi 0.9.1/);
+});
