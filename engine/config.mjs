@@ -38,6 +38,7 @@ function titleCase(id) {
   return id.charAt(0).toUpperCase() + id.slice(1);
 }
 
+/** @param {Record<string, any>} [user] parsed config JSON */
 export function resolveConfig(user = DEFAULT_CONFIG) {
   const lanes = (user.lanes || []).map((lane) => ({ ...lane, name: lane.name || titleCase(lane.id) }));
   if (lanes.length !== 2) throw new Error(`config needs exactly two lanes, got ${lanes.length}`);

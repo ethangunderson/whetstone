@@ -489,7 +489,9 @@ const commands = {
   },
 };
 
-async function main([command, ...rest]) {
+/** @param {string[]} argv */
+async function main(argv) {
+  const [command, ...rest] = argv;
   const handler = commands[command];
   if (!handler) {
     console.error(

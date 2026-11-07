@@ -17,6 +17,10 @@ import { dirname, join } from "node:path";
 const WRITE_TOOLS = "read,grep,find,ls,bash,edit,write";
 const READ_TOOLS = "read,grep,find,ls,bash";
 
+/**
+ * @param {Record<string, any>} req
+ * @param {{ sessionDir?: string, sessionFile?: string }} session
+ */
 export function piArgs(req, { sessionDir, sessionFile }) {
   const argv = ["-p", "--mode", "json", "--model", req.model];
   if (req.effort) argv.push("--thinking", req.effort);

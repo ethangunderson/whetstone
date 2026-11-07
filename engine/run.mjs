@@ -89,6 +89,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     }
   }
 
+  /** @returns {Promise<never>} */
   async function failOrStop(error) {
     if (error instanceof Stopped) {
       await store.update((s) => {

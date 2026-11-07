@@ -88,6 +88,7 @@ const isJson = (text) => {
 // answer and still exit non-zero, so a JSON stdout wins over the exit code;
 // anything else on a failure means stderr has the reason. Each call gets
 // timeoutMs: Linear is behind it, and a stall would hang the start.
+/** @param {{ bin?: string, run?: (args: string[]) => Promise<string>, timeoutMs?: number }} [options] */
 export function createLinearReader({ bin = findHerdrLinear(), run, timeoutMs = 30_000 } = {}) {
   const exec =
     run ||

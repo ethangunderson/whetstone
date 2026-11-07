@@ -22,6 +22,7 @@ function parseAsk(message) {
 // news (a turn ended, it blocked, it hit an error, it exited) is queued for its
 // parent and consumed once by `hc wait --children any`, which otherwise blocks
 // until news or its timeout.
+/** @param {{ inbox?: any, behave?: Record<string, any> }} [options] */
 function fakeHc({ inbox, behave = {} } = {}) {
   const calls = [];
   const terms = {};
@@ -133,6 +134,7 @@ function fakeHc({ inbox, behave = {} } = {}) {
   return { hc, calls, terms, setStatus, exit };
 }
 
+/** @param {{ behave?: Record<string, any>, harness?: Record<string, any> }} [opts] */
 async function setup(opts = {}) {
   const runDir = await mkdtemp(join(tmpdir(), "whetstone-herdr-"));
   const inbox = createInbox();

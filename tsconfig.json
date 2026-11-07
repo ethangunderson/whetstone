@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "module": "nodenext",
+    "target": "es2023",
+    "skipLibCheck": true,
+    "types": ["node"],
+    "strict": false
+  },
+  "include": ["engine/**/*.mjs", "mods/**/*.js", "test/**/*.mjs", "spikes/**/*.mjs", "types/**/*.d.ts"]
+}
