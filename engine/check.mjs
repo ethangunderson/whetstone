@@ -1,5 +1,5 @@
-// "Can I start a run here?" as a list of { ok, what, detail } plus the models
-// each difficulty tier would use, for the pane's start form. Pure over its
+// "Can I start a run here?" as a list of { ok, what, detail } plus the lanes
+// and the models each difficulty tier gives them, for the pane's start form. Pure over its
 // inputs: the CLI passes in git, the runs on disk, the config and harnesses.
 
 export const ACTIVE_STATUSES = ["running", "paused", "waiting", "blocked"];
@@ -47,14 +47,16 @@ export async function preflight({ repo, baseRef = "HEAD", git, runs, loadConfig,
     : { ok: true, what: "no active run", detail: "" });
 
   let tiers = null;
+  let lanes = null;
   try {
     const config = await loadConfig();
     checks.push({ ok: true, what: "config", detail: "" });
     checks.push(...await harnessChecks(config.lanes, adapters));
     tiers = config.tiers;
+    lanes = config.lanes.map(({ id, name, harness }) => ({ id, name, harness }));
   } catch (error) {
     checks.push({ ok: false, what: "config", detail: message(error) });
   }
 
-  return { ok: checks.every((c) => c.ok), repo: root || repo, baseRef, checks, tiers };
+  return { ok: checks.every((c) => c.ok), repo: root || repo, baseRef, checks, lanes, tiers };
 }

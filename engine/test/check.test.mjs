@@ -30,7 +30,7 @@ function deps(over = {}) {
 
 const byWhat = (result) => Object.fromEntries(result.checks.map((c) => [c.what, c]));
 
-test("a ready repo passes every check and lists the tier models", async () => {
+test("a ready repo passes every check and lists the lanes and tier models", async () => {
   const result = await preflight(deps());
   assert.equal(result.ok, true);
   assert.equal(result.repo, "/r/app");
@@ -45,6 +45,7 @@ test("a ready repo passes every check and lists the tier models", async () => {
   ]);
   assert.equal(byWhat(result)["base ref"].detail, "HEAD at abc1234");
   assert.deepEqual(result.tiers, TIERS);
+  assert.deepEqual(result.lanes, [{ id: "claude", name: "Claude", harness: "herdr" }, { id: "codex", name: "Codex", harness: "pi" }]);
   for (const c of result.checks) assert.deepEqual(Object.keys(c).sort(), ["detail", "ok", "what"]);
 });
 
@@ -82,12 +83,13 @@ test("only an active run on the same repo blocks a start", async () => {
   }
 });
 
-test("a config that does not load fails, and harnesses and tiers are left out", async () => {
+test("a config that does not load fails, and harnesses, lanes and tiers are left out", async () => {
   const result = await preflight(deps({ loadConfig: async () => { throw new Error("config needs exactly two lanes, got 1"); } }));
   assert.equal(result.ok, false);
   assert.deepEqual(result.checks.map((c) => c.what), ["git repo", "base ref", "no active run", "config"]);
   assert.match(byWhat(result).config.detail, /two lanes/);
   assert.equal(result.tiers, null);
+  assert.equal(result.lanes, null);
 });
 
 test("harnessChecks reports each lane: ready with version, not installed, or no adapter", async () => {
