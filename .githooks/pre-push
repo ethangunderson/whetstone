@@ -3,4 +3,8 @@
 # shellcheck source-path=SCRIPTDIR source=find-tools.sh
 . "$(dirname "$0")/find-tools.sh"
 tools=$(find_tools) || exit 1
+# Git hands hooks GIT_DIR and friends; tests that run git in temp repos would
+# otherwise act on this one.
+# shellcheck disable=SC2046
+unset $(git rev-parse --local-env-vars)
 PATH="$tools:$PATH" npm run -s check

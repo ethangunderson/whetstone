@@ -18,8 +18,12 @@ const GIT_ENV = {
   GIT_CONFIG_NOSYSTEM: "1",
 };
 
+// Without the GIT_ variables this process may have inherited (from a hook, say),
+// so git here only ever sees the temp repo it runs in.
+const BASE_ENV = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")));
+
 function sh(cwd, cmd, args, env = {}) {
-  const r = spawnSync(cmd, args, { cwd, encoding: "utf8", env: { ...process.env, ...GIT_ENV, ...env } });
+  const r = spawnSync(cmd, args, { cwd, encoding: "utf8", env: { ...BASE_ENV, ...GIT_ENV, ...env } });
   return { code: r.status, out: r.stdout + r.stderr };
 }
 
@@ -124,7 +128,12 @@ test("pre-commit shellchecks exactly the staged shell scripts", async () => {
   assert.equal(r.code, 0, r.out);
   const checked = (await logged(log))
     .filter((l) => l.includes("/shellcheck "))
-    .flatMap((l) => l.split(" ").slice(1))
+    .flatMap((l) =>
+      l
+        .split(" ")
+        .slice(1)
+        .filter((arg) => !arg.startsWith("-")),
+    )
     .sort();
   assert.deepEqual(checked, [".githooks/pre-commit", "scripts/a.sh"]);
 });
@@ -174,10 +183,42 @@ test("pre-push stops the push when npm run check fails", async () => {
   assert.notEqual(git(remote, "rev-parse", "--verify", "-q", "main").code, 0);
 });
 
+// Git exports GIT_DIR and friends to hooks; a test under check that runs git
+// would then work on the repo being pushed instead of its own temp repo.
+test("pre-push runs check without git's repository variables, from the main checkout or a worktree", async () => {
+  const s = await setupPush(0);
+  await writeFile(
+    join(s.main, "package.json"),
+    JSON.stringify({
+      scripts: {
+        check: `env | grep -E '^GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR|PREFIX|OBJECT_DIRECTORY)=' >> "${s.log}"; exit 0`,
+      },
+    }),
+  );
+  git(s.main, "commit", "-q", "--no-verify", "-am", "env check");
+  const lane = s.worktree("lane");
+  assert.equal(s.push(s.main, "main").code, 0);
+  assert.equal(s.push(lane, "lane").code, 0);
+  assert.deepEqual(await logged(s.log), []);
+});
+
 test("pre-push in a worktree with no node_modules runs check with the main checkout's tools", async () => {
   const { main, log, push, worktree } = await setupPush(0);
   const lane = worktree("lane");
   const r = push(lane, "lane");
   assert.equal(r.code, 0, r.out);
   assert.ok((await logged(log)).includes(join(main, "node_modules/.bin/biome")), await readFile(log, "utf8"));
+});
+
+// Real shellcheck: a hook staged alone must still pass, since it sources a
+// helper that isn't part of the same shellcheck call.
+test("pre-commit passes this repo's own hooks when each is staged on its own", async () => {
+  const { main, log } = await setup();
+  await stubBiome(main, log);
+  for (const hook of ["pre-commit", "pre-push", "find-tools.sh"]) {
+    await writeFile(join(main, ".githooks", hook), "\n", { flag: "a" });
+    git(main, "add", `.githooks/${hook}`);
+    const r = sh(main, "git", ["commit", "-q", "-m", hook]);
+    assert.equal(r.code, 0, `${hook}: ${r.out}`);
+  }
 });

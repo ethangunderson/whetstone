@@ -12,4 +12,4 @@ if ! command -v shellcheck >/dev/null; then
   echo "pre-commit: shellcheck not found: brew install shellcheck" >&2
   exit 1
 fi
-shell_scripts -z | xargs -0 shellcheck
+shell_scripts -z | xargs -0 shellcheck -x
