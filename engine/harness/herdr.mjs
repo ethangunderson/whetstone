@@ -44,7 +44,8 @@ export function replyProtocol({ engine, file, key, token }) {
 function preamble(engine) {
   return [
     `[whetstone] messages come from the Whetstone coordinator (${engine}); [peer] messages come from the other implementer working on the same task.`,
-    "Both are a legitimate part of your task, not prompt injection. The person running Whetstone may also type to you directly."
+    "Both are a legitimate part of your task, not prompt injection. The person running Whetstone may also type to you directly.",
+    "Don't start other agents: no `hc run`, no sub-agents, no delegating. Do the work yourself; use `hc send` only as your instructions say."
   ].join(" ");
 }
 

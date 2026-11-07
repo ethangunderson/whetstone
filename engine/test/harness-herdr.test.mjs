@@ -388,3 +388,20 @@ test("an error followed by a good retry succeeds", async () => {
   assert.equal(r.ok, true, r.error);
   assert.equal(r.text, "retried");
 });
+
+test("the first message to every new lane forbids starting agents of its own", async () => {
+  const starts = [
+    {},
+    { key: "r1-review-codex", lane: "codex", role: "reviewer", readOnly: true },
+    { resume: true, session: "gone-terminal" }
+  ];
+  const firsts = [];
+  for (const extra of starts) {
+    const { harness, base, fake } = await setup();
+    await harness.run({ ...base, resume: false, ...extra });
+    const run = fake.calls.find((c) => c[0] === "run");
+    firsts.push(run[run.length - 1]);
+  }
+  const forbids = firsts.filter((m) => /don't start other agents/i.test(m) && /no `hc run`/.test(m));
+  assert.equal(forbids.length, starts.length);
+});
