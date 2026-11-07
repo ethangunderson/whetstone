@@ -20,6 +20,7 @@
 //   fallback     true | false: force a tier's fallback or primary pair without probing
 //   isolation    extra text about isolating concurrent test runs
 //   stepMode     wait for approval (control.approved >= step) before each step
+//   issue        { key, title, url } when the task came from a Linear issue (recorded for the pane)
 
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -126,7 +127,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       s.args = args;
       s.pid = process.pid;
       Object.assign(s, {
-        task: args.task, repo, slug, baseRef, root, reportDir, finalBranch, finalPath,
+        task: args.task, issue: args.issue ?? null, repo, slug, baseRef, root, reportDir, finalBranch, finalPath,
         steps: STEPS, stepMode: Boolean(args.stepMode), status: "running", error: null, next: null, question: null
       });
       s.step ??= 0;

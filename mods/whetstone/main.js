@@ -252,6 +252,10 @@ export default class Whetstone extends View {
           .when(this.runs.length > 1, (c) => c.cursor_pointer().hover((s) => s.text_color(t.foreground))
             .tooltip(`Next run (${this.runs.length} runs)`)
             .on_click((_e, cx) => this.nextRun(cx))))
+        .when(Boolean(h.issue && h.issue.url), (el) => el
+          .child(div().id("ws-issue").flex_none().font_family(MONO).text_size(11).text_color(t.muted).underline()
+            .cursor_pointer().hover((s) => s.text_color(t.foreground)).tooltip(`Open ${h.issue.key} in Linear`)
+            .on_click((_e, cx) => cx.open_url(h.issue.url)).child(h.issue.key)))
         .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(h.task)))
       .when(!h, (el) => el.child(div().flex_1()))
       .children(buttons);

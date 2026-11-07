@@ -53,6 +53,14 @@ test("runHeader names the run and says what state it is in", () => {
   assert.equal(runHeader(state({ status: "failed" }), {}, false).tone, "failed");
 });
 
+test("runHeader shows a run's Linear issue as a link instead of the whole task", () => {
+  const issue = { key: "WHE-5", title: "Lanes must not start", url: "https://linear.app/eg-whetstone/issue/WHE-5/x" };
+  const h = runHeader(state({ task: "WHE-5: Lanes must not start\nhttps://…\n\nlong description", issue }), {}, true);
+  assert.equal(h.task, "Lanes must not start");
+  assert.deepEqual(h.issue, issue);
+  assert.equal(runHeader(state(), {}, true).issue, undefined, "plain tasks have no link");
+});
+
 test("statusLine adds the latest event only while the run is moving", () => {
   assert.deepEqual(statusLine(state({ latest: "Step 2/6 · Drafting" }), {}, true), { status: "Running", tone: "working", detail: "Drafting" });
   assert.equal(statusLine(state({ status: "waiting", latest: "Waiting for you to start step 3/6 · Debate" }), {}, true).detail, "");

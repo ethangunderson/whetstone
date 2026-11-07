@@ -26,7 +26,10 @@ const titleCase = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "");
 
 // alive: whether the engine process is still there (checked by the caller).
 export function runHeader(state, control, alive) {
-  const base = { slug: state.slug, task: state.task };
+  // A run from a Linear issue shows its title, linked; the task text carries the whole description.
+  const base = state.issue
+    ? { slug: state.slug, task: state.issue.title, issue: state.issue }
+    : { slug: state.slug, task: state.task };
   if (isActive(state) && !alive) return { ...base, status: "Interrupted", tone: "failed" };
   switch (state.status) {
     case "running":
