@@ -53,17 +53,22 @@ const signedOut = (urlKey) => new Error(urlKey
   ? "herdr-linear is not signed in to the Linear workspace " + urlKey + ": sign in with `herdr-linear login`"
   : "herdr-linear is not signed in to Linear: sign in with `herdr-linear login`");
 
+const isJson = (text) => { try { JSON.parse(text); return true; } catch { return false; } };
+
 // run(args) → stdout; tests pass their own. herdr-linear may print its JSON
-// answer and still exit non-zero, so stdout wins over the exit code.
-export function createLinearReader({ bin = findHerdrLinear(), run } = {}) {
+// answer and still exit non-zero, so a JSON stdout wins over the exit code;
+// anything else on a failure means stderr has the reason. Each call gets
+// timeoutMs: Linear is behind it, and a stall would hang the start.
+export function createLinearReader({ bin = findHerdrLinear(), run, timeoutMs = 30_000 } = {}) {
   const exec = run || (async (args) => {
     if (!bin) throw missing(bin);
     try {
-      return (await promisify(execFile)(bin, args, { maxBuffer: 8 << 20 })).stdout;
+      return (await promisify(execFile)(bin, args, { maxBuffer: 8 << 20, timeout: timeoutMs })).stdout;
     } catch (error) {
       if (error.code === "ENOENT" || error.code === "EACCES") throw missing(bin);
-      if (String(error.stdout || "").trim()) return error.stdout;
-      throw new Error("herdr-linear failed: " + String(error.stderr || error.message).trim());
+      if (error.killed) throw new Error("herdr-linear didn't answer within " + timeoutMs / 1000 + "s (" + args[0] + ")");
+      if (isJson(error.stdout)) return error.stdout;
+      throw new Error("herdr-linear failed: " + String(error.stderr || error.stdout || error.message).trim().slice(0, 500));
     }
   });
 
@@ -94,6 +99,7 @@ export function createLinearReader({ bin = findHerdrLinear(), run } = {}) {
         }
         if (!Array.isArray(answer)) throw new Error("herdr-linear gave an answer whetstone can't read: " + JSON.stringify(answer).slice(0, 200));
         const found = answer.find((r) => String(r && r.key).toUpperCase() === ref.key);
+        if (found && found.error && found.signedOut) throw signedOut();
         if (found && found.error) throw new Error("herdr-linear couldn't look up " + ref.key + ": " + found.error);
         if (!found || !found.issue) {
           throw new Error("Linear issue " + ref.key + " not found in your signed-in workspaces (" + workspaces.map((w) => w.urlKey).join(", ") + ")");

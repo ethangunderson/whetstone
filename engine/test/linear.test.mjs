@@ -70,6 +70,7 @@ test("a URL skips the search: it already names the workspace", async () => {
 test("an issue that can't be found says so", async () => {
   await assert.rejects(fake({ issue: null }).reader.read("WHE-999"), /Linear issue WHE-999 not found in your signed-in workspaces \(eg-whetstone\)/);
   await assert.rejects(fake({ issuesError: "rate limited" }).reader.read("WHE-5"), /herdr-linear couldn't look up WHE-5: rate limited/);
+  await assert.rejects(fake({ issuesAnswer: [{ key: "WHE-5", issue: null, error: "token revoked", signedOut: true }] }).reader.read("WHE-5"), /herdr-linear is not signed in to Linear/, "signedOut on the entry itself");
   await assert.rejects(fake({ detail: { error: "Entity not found", signedOut: false } }).reader.read(URL), /herdr-linear couldn't read WHE-5: Entity not found/);
 });
 
@@ -99,6 +100,28 @@ test("a real binary's stdout is read even when it exits non-zero", async () => {
   await writeFile(bin, "#!/bin/sh\necho '{\"error\":\"boom\",\"signedOut\":false}'\nexit 1\n");
   await chmod(bin, 0o755);
   await assert.rejects(createLinearReader({ bin }).read("WHE-5"), /herdr-linear couldn't read Linear: boom/);
+});
+
+async function script(body) {
+  const dir = await mkdtemp(join(tmpdir(), "whetstone-linear-"));
+  const bin = join(dir, "herdr-linear");
+  await writeFile(bin, "#!/bin/sh\n" + body + "\n");
+  await chmod(bin, 0o755);
+  return bin;
+}
+
+test("a non-zero exit without a JSON answer reports herdr-linear's stderr", async () => {
+  const bin = await script("echo 'Usage: herdr-linear ...'\necho 'real cause: token expired' >&2\nexit 1");
+  await assert.rejects(createLinearReader({ bin }).read("WHE-5"), /herdr-linear failed: real cause: token expired/);
+  const quiet = await script("echo 'real cause: no network' >&2\nexit 2");
+  await assert.rejects(createLinearReader({ bin: quiet }).read("WHE-5"), /herdr-linear failed: real cause: no network/);
+});
+
+test("a herdr-linear that stalls is given up on, with the command named", async () => {
+  const bin = await script("sleep 5");
+  const started = Date.now();
+  await assert.rejects(createLinearReader({ bin, timeoutMs: 200 }).read("WHE-5"), /herdr-linear didn't answer within 0\.2s \(app\)/);
+  assert.ok(Date.now() - started < 3000, "not the full sleep");
 });
 
 test("findHerdrLinear prefers the override, else the newest installed version that can run", async () => {
