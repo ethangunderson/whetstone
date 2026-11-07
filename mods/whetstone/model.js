@@ -5,7 +5,7 @@
 const ACTIVE = ["running", "paused", "waiting", "blocked"];
 const SEVERITIES = ["P0", "P1", "P2"];
 
-export const isActive = (state) => ACTIVE.includes(state && state.status);
+export const isActive = (state) => ACTIVE.includes(state?.status);
 
 export function shortModel(spec) {
   if (!spec) return "";
@@ -33,7 +33,7 @@ export function runHeader(state, control, alive) {
   if (isActive(state) && !alive) return { ...base, status: "Interrupted", tone: "failed" };
   switch (state.status) {
     case "running":
-      return control && control.pause
+      return control?.pause
         ? { ...base, status: "Pausing after this stage", tone: "attention" }
         : { ...base, status: "Running", tone: "working" };
     case "paused":
@@ -57,14 +57,14 @@ export function runHeader(state, control, alive) {
 // otherwise the latest event just repeats the status.
 export function statusLine(state, control, alive) {
   const { status, tone } = runHeader(state, control, alive);
-  const moving = state.status === "running" && alive && !(control && control.pause);
+  const moving = state.status === "running" && alive && !control?.pause;
   return { status, tone, detail: moving ? String(state.latest || "").replace(/^Step \d+\/\d+ · /, "") : "" };
 }
 
 // How the pane runs the CLI: the node and cli.mjs paths recorded at install
 // time (Herdr's exec doesn't see a login shell's PATH), else `whetstone`.
 export function cliCommand(config, args) {
-  if (config && config.node && config.cli) return [config.node, [config.cli, ...args]];
+  if (config?.node && config.cli) return [config.node, [config.cli, ...args]];
   return ["whetstone", args];
 }
 
@@ -112,9 +112,9 @@ export function laneCards(state, now) {
 export function decision(state) {
   if (!state.integrator) return null;
   const lanes = state.lanes || {};
-  const name = (id) => (lanes[id] && lanes[id].name) || titleCase(id);
-  const votes = (state.votes && state.votes.integrator) || {};
-  const plan = (state.plan && state.plan[state.integrator]) || {};
+  const name = (id) => lanes[id]?.name || titleCase(id);
+  const votes = state.votes?.integrator || {};
+  const plan = state.plan?.[state.integrator] || {};
   const share = Object.keys(lanes).map((id) => [name(id), plan[id] || 0]);
   share.push(["Both", plan.both || 0], ["New", plan.new || 0]);
   return {
@@ -164,7 +164,7 @@ export function rounds(state) {
         title: f.title,
         disposition: f.disposition ? f.disposition.toLowerCase() : "open",
         positions: Object.entries(f.positions || {}).map(([id, p]) => ({
-          name: (lanes[id] && lanes[id].name) || id,
+          name: lanes[id]?.name || id,
           position: String(p.position).toLowerCase(),
           why: p.why || "",
         })),
@@ -180,7 +180,7 @@ export function parseEvents(text) {
     if (!line.trim()) continue;
     try {
       const e = JSON.parse(line);
-      if (e && e.text) out.push(e);
+      if (e?.text) out.push(e);
     } catch {
       /* skip a torn line */
     }
@@ -205,7 +205,7 @@ export function actions(state, control, alive) {
   if (isActive(state) && !alive) return ["restart"];
   switch (state.status) {
     case "running":
-      return [control && control.pause ? "resume" : "pause", "stop"];
+      return [control?.pause ? "resume" : "pause", "stop"];
     case "paused":
       return ["resume", "stop"];
     case "waiting":
@@ -234,7 +234,7 @@ export function pickRun(runs, pin) {
 
 // ---- The story: what was proposed, argued and agreed ----------------------
 
-const laneName = (state, id) => (state.lanes && state.lanes[id] && state.lanes[id].name) || (id ? titleCase(id) : null);
+const laneName = (state, id) => state.lanes?.[id]?.name || (id ? titleCase(id) : null);
 const SOURCE_NAMES = { both: "Both", new: "New" };
 
 export function storySections(state) {
@@ -269,7 +269,7 @@ export function storySections(state) {
           peerBetter: c ? c.peerBetter || [] : [],
           mineBetter: c ? c.mineBetter || [] : [],
           middleRoad: c ? c.middleRoad || null : null,
-          base: c && c.base ? laneName(state, c.base) : null,
+          base: c?.base ? laneName(state, c.base) : null,
         };
       }),
     });
@@ -284,10 +284,10 @@ export function storySections(state) {
       integrator,
       how: sel.decidedBy === "arbiter" ? `They disagreed; the arbiter chose ${integrator}` : `Both chose ${integrator}`,
       reasons: ids
-        .filter((id) => sel.reasons && sel.reasons[id])
+        .filter((id) => sel.reasons?.[id])
         .map((id) => ({
           name: laneName(state, id),
-          vote: converge[id] && converge[id].vote ? laneName(state, converge[id].vote) : null,
+          vote: converge[id]?.vote ? laneName(state, converge[id].vote) : null,
           why: sel.reasons[id],
         })),
       arbiter: sel.arbiter || null,
@@ -298,7 +298,7 @@ export function storySections(state) {
           conceded: converge[id].concessions || [],
           holding: converge[id].holding || [],
         })),
-      plan: ((story.plan && story.plan.items) || []).map((i) => ({
+      plan: (story.plan?.items || []).map((i) => ({
         item: i.item,
         source: SOURCE_NAMES[i.source] || laneName(state, i.source),
       })),
@@ -309,26 +309,31 @@ export function storySections(state) {
 
 // ---- The lane viewer --------------------------------------------------------
 
+const REVIEW_TURN = /^r(\d+)-(review|respond)-/;
+const FIX_ROUND = /^r(\d+)-fix$/;
+
 function stageRank(key) {
-  let m;
   if (key.startsWith("draft-")) return 1;
   if (key.startsWith("critique-")) return 2;
   if (key.startsWith("converge-")) return 3;
   if (key === "integrate") return 4;
-  if ((m = /^r(\d+)-(review|respond)-/.exec(key))) return 10 * Number(m[1]) + (m[2] === "review" ? 1 : 2);
-  if ((m = /^r(\d+)-fix$/.exec(key))) return 10 * Number(m[1]) + 3;
+  const turn = REVIEW_TURN.exec(key);
+  if (turn) return 10 * Number(turn[1]) + (turn[2] === "review" ? 1 : 2);
+  const fix = FIX_ROUND.exec(key);
+  if (fix) return 10 * Number(fix[1]) + 3;
   if (key === "signoff") return 100;
   return null;
 }
 
 function stageLabel(key) {
-  let m;
   if (key.startsWith("draft-")) return "Draft";
   if (key.startsWith("critique-")) return "Critique";
   if (key.startsWith("converge-")) return "Converge";
   if (key === "integrate") return "Integrate";
-  if ((m = /^r(\d+)-(review|respond)-/.exec(key))) return (m[2] === "review" ? "Review " : "Respond ") + m[1];
-  if ((m = /^r(\d+)-fix$/.exec(key))) return `Fix ${m[1]}`;
+  const turn = REVIEW_TURN.exec(key);
+  if (turn) return (turn[2] === "review" ? "Review " : "Respond ") + turn[1];
+  const fix = FIX_ROUND.exec(key);
+  if (fix) return `Fix ${fix[1]}`;
   return "Sign-off";
 }
 

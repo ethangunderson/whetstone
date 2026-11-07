@@ -266,7 +266,7 @@ export function createHerdrHarness({
         if (!blocked && Date.now() - lastNews > nudgeAfterMs) {
           lastNews = Date.now();
           const now = await info(name);
-          if (!now || now.state !== "live") return fail("the lane exited before reporting");
+          if (now?.state !== "live") return fail("the lane exited before reporting");
           if (!(now.status && now.status.state === "working")) {
             if (nudged) return fail("the lane stopped without reporting");
             nudged = true;

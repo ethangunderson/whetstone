@@ -102,12 +102,12 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     } else {
       await store.update((s) => {
         s.status = "failed";
-        s.error = String((error && error.message) || error);
+        s.error = String(error?.message || error);
         s.running = {};
         s.waitingSince = null;
         s.endedAt = new Date().toISOString();
       });
-      await store.event(`Failed · ${String((error && error.message) || error).split("\n")[0]}`);
+      await store.event(`Failed · ${String(error?.message || error).split("\n")[0]}`);
     }
     throw error;
   }
@@ -253,7 +253,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       for (;;) {
         const c = await store.readControl();
         if (c.stop) throw new Stopped();
-        const answer = c.answers && c.answers[id];
+        const answer = c.answers?.[id];
         if (typeof answer === "string" && answer.trim()) {
           await store.update((s) => {
             s.question = null;
@@ -302,14 +302,14 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
           activityFile: join(store.dir, "activity", `${req.key}.jsonl`),
         });
         return {
-          ok: Boolean(r && r.ok),
-          text: String((r && r.text) || ""),
-          sessionId: (r && r.sessionId) || req.session,
-          terminal: (r && r.terminal) || null,
-          error: (r && r.error) || null,
+          ok: Boolean(r?.ok),
+          text: String(r?.text || ""),
+          sessionId: r?.sessionId || req.session,
+          terminal: r?.terminal || null,
+          error: r?.error || null,
         };
       } catch (error) {
-        return { ok: false, text: "", sessionId: req.session, error: String((error && error.message) || error) };
+        return { ok: false, text: "", sessionId: req.session, error: String(error?.message || error) };
       }
     }
 
@@ -322,8 +322,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     // resume, structured, helper, file, stage, who, record }
     async function call(key, o) {
       const done = st.results[key];
-      if (done && done.ok)
-        return remember({ ...done, text: done.file ? await readFile(done.file, "utf8") : done.text });
+      if (done?.ok) return remember({ ...done, text: done.file ? await readFile(done.file, "utf8") : done.text });
       await gate();
       const system = await rolePrompt(o.role);
       const readOnly = o.role === "reviewer" || o.role === "triage";
@@ -371,8 +370,9 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       };
       let res = await invoke({ ...base, session, resume: Boolean(o.resume), prompt: o.prompt });
       let sid = res.sessionId;
-      let question;
-      while (res.ok && o.role === "writer" && (question = parseQuestion(res.text))) {
+      while (res.ok && o.role === "writer") {
+        const question = parseQuestion(res.text);
+        if (!question) break;
         const answer = await ask(key, o.lane, question);
         res = await invoke({
           ...base,
@@ -545,7 +545,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
             toProbe.map((id) => `${name(id)} can reach ${short(tier[id])}`).join(" and "),
         );
         const probes = await Promise.all(toProbe.map((id) => probe(`probe-${id}`, id, tier[id])));
-        const failed = toProbe.filter((id, i) => !probes[i].reachable);
+        const failed = toProbe.filter((_id, i) => !probes[i].reachable);
         if (!failed.length) {
           fallback = "primary";
           fallbackReason = "Live probe succeeded.";
@@ -792,7 +792,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         lastTag(plan[id], "INTEGRATOR", ids) || (ids.includes(parsed.integrator) ? parsed.integrator : undefined);
       const counts = { [ids[0]]: 0, [ids[1]]: 0, both: 0, new: 0 };
       (Array.isArray(parsed.items) ? parsed.items : []).forEach((item) => {
-        if (item && Object.prototype.hasOwnProperty.call(counts, item.source)) counts[item.source] += 1;
+        if (item && Object.hasOwn(counts, item.source)) counts[item.source] += 1;
       });
       planSources[id] = counts;
     });
@@ -1011,14 +1011,14 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
           findings: [],
         };
         reviewMetrics.push(roundMetrics[id]);
-        data.findings.forEach((f, n) =>
-          roundInfo.findings.push({ id: `${byId[id].prefix + round}-${n + 1}`, reviewer: id, ...f }),
-        );
+        for (const [n, f] of data.findings.entries()) {
+          roundInfo.findings.push({ id: `${byId[id].prefix + round}-${n + 1}`, reviewer: id, ...f });
+        }
       });
       const findings = roundInfo.findings;
-      findings.forEach((f) =>
-        roundMetrics[f.reviewer].findings.push({ id: f.id, severity: f.severity, disposition: null }),
-      );
+      for (const f of findings) {
+        roundMetrics[f.reviewer].findings.push({ id: f.id, severity: f.severity, disposition: null });
+      }
       const reviewFailed = ids.some((id) => ["FAILED", "UNKNOWN"].includes(roundInfo.reviews[id].verdict));
       const blocking = findings.filter((f) => f.severity !== "P2");
       roundInfo.blocking = blocking.length;
@@ -1133,11 +1133,11 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       findings.forEach((f) => {
         if (disposed[f.id]) Object.assign(f, { disposition: disposed[f.id].status, why: disposed[f.id].why });
       });
-      ids.forEach((id) =>
-        roundMetrics[id].findings.forEach((f) => {
+      for (const id of ids) {
+        for (const f of roundMetrics[id].findings) {
           if (disposed[f.id]) f.disposition = disposed[f.id].status;
-        }),
-      );
+        }
+      }
       await publishRounds();
       unreviewedFixes = true;
       history += `\nRound ${round} findings:\n${findingsText}\n\nResolution by integrator:\n${fixed.text}\n`;

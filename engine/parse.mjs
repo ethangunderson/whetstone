@@ -21,9 +21,8 @@ export function lastJson(text) {
 // Value of the last `TAG: value` line, lowercased, when it is one of `allowed`.
 export function lastTag(text, tag, allowed) {
   const re = new RegExp(`^\\s*${tag}:\\s*([a-z-]+)`, "gim");
-  let match;
   let found;
-  while ((match = re.exec(String(text || ""))) !== null) found = match[1].toLowerCase();
+  for (const match of String(text || "").matchAll(re)) found = match[1].toLowerCase();
   return allowed.includes(found) ? found : undefined;
 }
 

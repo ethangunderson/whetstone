@@ -99,7 +99,7 @@ function fakeHc({ inbox, behave = {} } = {}) {
     if (cmd === "send") {
       const name = args[args.length - 2];
       const t = terms[name];
-      if (!t || t.state !== "live") throw Object.assign(new Error("not found"), { code: 3 });
+      if (t?.state !== "live") throw Object.assign(new Error("not found"), { code: 3 });
       t.status = "working";
       respond(t, args[args.length - 1]);
       return JSON.stringify({ started: true });
@@ -255,7 +255,7 @@ test("resuming a lane whose terminal is gone starts a new one and says context w
 });
 
 test("stale or foreign done lines don't complete the wrong step", async () => {
-  const { harness, base, inbox } = await setup({
+  const { harness, base } = await setup({
     behave: {
       default: async ({ file, done, inbox }) => {
         inbox.push("done draft-claude oldtoken");

@@ -213,7 +213,7 @@ export default class Whetstone extends View {
     const auto = stages.find((s) => s.state === "running") ?? stages[stages.length - 1];
     const stage = stages.find((s) => s.key === this.stageKey) ?? auto ?? null;
     const activity = stage ? activityItems((await readTextFile(`${dir}/activity/${stage.key}.jsonl`)) ?? "") : [];
-    const reply = stage && stage.file && stage.state !== "running" ? ((await readTextFile(stage.file)) ?? "") : "";
+    const reply = stage?.file && stage.state !== "running" ? ((await readTextFile(stage.file)) ?? "") : "";
     const laneCard = laneCards(state, Date.now()).find((c) => c.id === laneId) ?? null;
     this.lane = { state, stages, stage, activity, reply, card: laneCard };
   }
@@ -351,7 +351,7 @@ export default class Whetstone extends View {
                   .on_click((_e, cx) => this.nextRun(cx)),
               ),
           )
-          .when(Boolean(h.issue && h.issue.url), (el) =>
+          .when(Boolean(h.issue?.url), (el) =>
             el.child(
               div()
                 .id("ws-issue")
@@ -571,7 +571,7 @@ export default class Whetstone extends View {
   }
 
   // One lane's part of a story card: its name, then what it said.
-  laneBlock(t, id, name, children) {
+  laneBlock(_t, id, name, children) {
     return v_flex().id(id).gap(5).child(div().text_size(12.5).font_semibold().child(name)).children(children);
   }
 
@@ -630,7 +630,6 @@ export default class Whetstone extends View {
   }
 
   agreementCard(t, s, state) {
-    const o = tones(t);
     const d = decision(state);
     return card(t, "ws-agreement")
       .gap(10)
@@ -965,7 +964,7 @@ export default class Whetstone extends View {
 
   laneHeader(t, l) {
     const o = tones(t);
-    const c = l && l.card;
+    const c = l?.card;
     const tone = c
       ? { working: o.working, "needs you": o.attention, failed: o.failed, error: o.failed, done: o.done, idle: o.idle }[
           c.status
@@ -1028,7 +1027,7 @@ export default class Whetstone extends View {
 
   currentTab(l) {
     if (this.tab) return this.tab;
-    return l && l.stage && l.stage.state === "running" ? "activity" : "reply";
+    return l?.stage && l.stage.state === "running" ? "activity" : "reply";
   }
 
   stageChips(t, l) {

@@ -14,8 +14,8 @@
     "test": "node --test --test-timeout=20000 'engine/test/*.test.mjs' 'test/**/*.test.mjs'",
     "install-mod": "scripts/install-mod.sh",
     "format": "biome format --write",
-    "lint": "biome check",
-    "check": "biome format && npm test"
+    "lint": "biome check --error-on-warnings",
+    "check": "npm run -s lint && npm test"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6"

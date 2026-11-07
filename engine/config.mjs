@@ -60,9 +60,9 @@ export function resolveConfig(user = DEFAULT_CONFIG) {
 
   const tiers = {};
   for (const tier of TIERS) {
-    const t = (user.tiers || {})[tier];
+    const t = user.tiers?.[tier];
     for (const id of ids) {
-      if (!t || !t[id]) throw new Error(`config tiers.${tier} needs a model for lane ${id}`);
+      if (!t?.[id]) throw new Error(`config tiers.${tier} needs a model for lane ${id}`);
       if (t.fallback && !t.fallback[id]) throw new Error(`config tiers.${tier}.fallback needs a model for lane ${id}`);
     }
     tiers[tier] = t;

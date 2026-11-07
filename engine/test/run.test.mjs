@@ -30,7 +30,7 @@ const fence = (obj) => `\`\`\`json\n${JSON.stringify(obj)}\n\`\`\``;
 function scriptFor(o) {
   return (req) => {
     const { key } = req;
-    if (o.override && o.override[key]) return o.override[key](req);
+    if (o.override?.[key]) return o.override[key](req);
     if (key.startsWith("probe-") || key.startsWith("fallback-")) {
       const outcome = (key.startsWith("probe-") ? o.probe : o.fallback)?.[key.split("-")[1]] ?? "ok";
       if (outcome === "throw") throw new Error("model not available on this plan");
@@ -40,7 +40,7 @@ function scriptFor(o) {
       return { text: `Rated.\n${fence({ difficulty: o.triage ?? "hard", reasoning: "because", risks: [] })}` };
     if (key.startsWith("converge-")) {
       const who = key.slice(9);
-      const items = (o.sources && o.sources[who]) || [];
+      const items = o.sources?.[who] || [];
       return {
         text:
           "plan\n" +
@@ -550,7 +550,7 @@ test("an invalid structured reply is re-asked once in the same session", async (
     ...agree,
     reviews: [{ claude: clean, codex: clean }],
     override: {
-      triage: (req) =>
+      triage: () =>
         ++n === 1
           ? { text: "it's medium I think" }
           : { text: fence({ difficulty: "easy", reasoning: "small", risks: [] }) },
@@ -674,7 +674,7 @@ test("a writer's question blocks its lane until the operator answers", async () 
     reviews: [{ claude: clean, codex: clean }],
     args: { difficulty: "easy" },
     override: {
-      "draft-claude": (req) => {
+      "draft-claude": () => {
         if (!asked) {
           asked = true;
           return { text: "Halfway.\n```question\nInclude archived rows? A) yes B) no. I recommend B.\n```" };

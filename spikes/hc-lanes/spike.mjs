@@ -48,7 +48,7 @@ const waiters = [];
 createInterface({ input: process.stdin }).on("line", (line) => {
   log("inbox", { line });
   inbox.push(line);
-  waiters.splice(0).forEach((w) => w());
+  for (const w of waiters.splice(0)) w();
 });
 function nextMatching(re, timeoutMs) {
   return new Promise((resolve) => {

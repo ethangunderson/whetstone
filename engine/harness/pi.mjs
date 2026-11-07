@@ -71,7 +71,7 @@ export function piActivity(e) {
     return { kind: "tool", id: e.toolCallId, tool: e.toolName, text: clip(text, 400) };
   }
   if (e.type === "tool_execution_end") {
-    const out = ((e.result && e.result.content) || [])
+    const out = (e.result?.content || [])
       .filter((c) => c.type === "text")
       .map((c) => c.text)
       .join("");

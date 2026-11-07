@@ -118,7 +118,7 @@ export function createLinearReader({ bin = findHerdrLinear(), run, timeoutMs = 3
   };
   const app = async (req, what) => {
     const answer = await call(["app", JSON.stringify(req)]);
-    if (answer && answer.error) {
+    if (answer?.error) {
       if (answer.signedOut) throw signedOut(answer.urlKey || what.urlKey);
       throw new Error(`herdr-linear couldn't read ${what.key || "Linear"}: ${answer.error}`);
     }
@@ -133,16 +133,16 @@ export function createLinearReader({ bin = findHerdrLinear(), run, timeoutMs = 3
       let urlKey = ref.urlKey;
       if (!urlKey) {
         const answer = await call(["issues", "--force", JSON.stringify([ref.key])]);
-        if (answer && answer.error) {
+        if (answer?.error) {
           if (answer.signedOut) throw signedOut();
           throw new Error(`herdr-linear couldn't look up ${ref.key}: ${answer.error}`);
         }
         if (!Array.isArray(answer))
           throw new Error(`herdr-linear gave an answer whetstone can't read: ${JSON.stringify(answer).slice(0, 200)}`);
-        const found = answer.find((r) => String(r && r.key).toUpperCase() === ref.key);
-        if (found && found.error && found.signedOut) throw signedOut();
-        if (found && found.error) throw new Error(`herdr-linear couldn't look up ${ref.key}: ${found.error}`);
-        if (!found || !found.issue) {
+        const found = answer.find((r) => String(r?.key).toUpperCase() === ref.key);
+        if (found?.error && found.signedOut) throw signedOut();
+        if (found?.error) throw new Error(`herdr-linear couldn't look up ${ref.key}: ${found.error}`);
+        if (!found?.issue) {
           throw new Error(
             "Linear issue " +
               ref.key +
@@ -156,7 +156,7 @@ export function createLinearReader({ bin = findHerdrLinear(), run, timeoutMs = 3
       const workspace = workspaces.find((w) => w.urlKey === urlKey);
       if (!workspace) throw signedOut(urlKey);
       const detail = await app({ op: "detail", issue: ref.key, workspace: workspace.id }, { key: ref.key, urlKey });
-      const issue = detail && detail.issue;
+      const issue = detail?.issue;
       if (!issue) throw new Error(`Linear issue ${ref.key} not found in ${urlKey}`);
       return {
         key: issue.identifier || ref.key,

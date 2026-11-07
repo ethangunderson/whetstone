@@ -400,7 +400,7 @@ const commands = {
 
   async approve([prefix, step]) {
     const run = await findRun(prefix);
-    const target = Number(step) || (run.state.next && run.state.next.step) || (run.state.step || 1) + 1;
+    const target = Number(step) || run.state.next?.step || (run.state.step || 1) + 1;
     await writeControl(run.dir, (c) => {
       c.approved = Math.max(Number(c.approved) || 1, target);
     });
