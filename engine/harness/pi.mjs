@@ -60,7 +60,7 @@ export function parsePiOutput(stdout) {
 // { kind: "tool" | "tool_end" | "text" | "error", ... }.
 const clip = (text, n) => {
   const t = String(text || "").trim();
-  return t.length > n ? t.slice(0, n) + "…" : t;
+  return t.length > n ? `${t.slice(0, n)}…` : t;
 };
 
 export function piActivity(e) {
@@ -97,7 +97,7 @@ async function findSessionFile(sessionDir, session) {
     /* no folder yet */
   }
   const match = names
-    .filter((n) => n.endsWith("_" + session + ".jsonl"))
+    .filter((n) => n.endsWith(`_${session}.jsonl`))
     .sort()
     .pop();
   return match ? join(sessionDir, match) : null;
@@ -128,7 +128,7 @@ export function createPiHarness({ bin = "pi" } = {}) {
             ok: false,
             text: "",
             sessionId: req.session,
-            error: "no pi session file for " + req.session + " in " + req.sessionDir,
+            error: `no pi session file for ${req.session} in ${req.sessionDir}`,
           };
       } else {
         await mkdir(req.sessionDir, { recursive: true });
@@ -153,7 +153,7 @@ export function createPiHarness({ bin = "pi" } = {}) {
           return;
         }
         const item = piActivity(event);
-        if (item) activity.write(JSON.stringify({ at: new Date().toISOString(), ...item }) + "\n");
+        if (item) activity.write(`${JSON.stringify({ at: new Date().toISOString(), ...item })}\n`);
       };
       const argv = piArgs(req, { sessionDir: req.sessionDir, sessionFile });
       return new Promise((resolve) => {
@@ -184,7 +184,7 @@ export function createPiHarness({ bin = "pi" } = {}) {
             ok: false,
             text: "",
             sessionId: req.session,
-            error: "could not start pi (" + bin + "): " + error.message,
+            error: `could not start pi (${bin}): ${error.message}`,
           }),
         );
         child.on("close", (code) => {
@@ -195,7 +195,7 @@ export function createPiHarness({ bin = "pi" } = {}) {
               ok: false,
               text: parsed.text,
               sessionId,
-              error: "pi exited with code " + code + ": " + stderr.trim().slice(-1000),
+              error: `pi exited with code ${code}: ${stderr.trim().slice(-1000)}`,
             });
           } else {
             finish({ ...parsed, sessionId });

@@ -53,10 +53,10 @@ function fake(o = {}) {
     if (req.op === "status") return JSON.stringify({ version: "0.14.3", workspaces: o.workspaces ?? [WS] });
     if (req.op === "detail") {
       if (req.workspace !== WS.id)
-        return JSON.stringify({ error: "not signed in to that workspace any more: " + req.workspace, signedOut: true });
+        return JSON.stringify({ error: `not signed in to that workspace any more: ${req.workspace}`, signedOut: true });
       return JSON.stringify(o.detail ?? DETAIL);
     }
-    throw new Error("unexpected " + args.join(" "));
+    throw new Error(`unexpected ${args.join(" ")}`);
   };
   return { calls, reader: createLinearReader({ bin: "/fake/herdr-linear", run }) };
 }
@@ -186,7 +186,7 @@ test("a real binary's stdout is read even when it exits non-zero", async () => {
 async function script(body) {
   const dir = await mkdtemp(join(tmpdir(), "whetstone-linear-"));
   const bin = join(dir, "herdr-linear");
-  await writeFile(bin, "#!/bin/sh\n" + body + "\n");
+  await writeFile(bin, `#!/bin/sh\n${body}\n`);
   await chmod(bin, 0o755);
   return bin;
 }
@@ -231,12 +231,12 @@ test("findHerdrLinear prefers the override, else the newest installed version th
 
 test("the task names the issue, carries its description, then the operator's notes", () => {
   const issue = { key: "WHE-5", title: "Lanes must not start", url: URL, description: "Lanes start early." };
-  assert.equal(issueTask(issue), "WHE-5: Lanes must not start\n" + URL + "\n\nLanes start early.");
+  assert.equal(issueTask(issue), `WHE-5: Lanes must not start\n${URL}\n\nLanes start early.`);
   assert.equal(
     issueTask(issue, "Keep it small."),
-    "WHE-5: Lanes must not start\n" + URL + "\n\nLanes start early.\n\nNotes from the operator:\nKeep it small.",
+    `WHE-5: Lanes must not start\n${URL}\n\nLanes start early.\n\nNotes from the operator:\nKeep it small.`,
   );
-  assert.equal(issueTask({ ...issue, description: "" }), "WHE-5: Lanes must not start\n" + URL);
+  assert.equal(issueTask({ ...issue, description: "" }), `WHE-5: Lanes must not start\n${URL}`);
 });
 
 test("the slug comes from the key and title", () => {

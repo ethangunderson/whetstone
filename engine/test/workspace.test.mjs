@@ -33,7 +33,7 @@ test("addWorktree refuses an existing branch or path instead of overwriting", as
   const path = join(root, ".whetstone", "app-y", "claude");
   await gitWorkspace.addWorktree({ repo: dir, path, branch: "whetstone/y-claude", from: "HEAD" });
   await assert.rejects(
-    gitWorkspace.addWorktree({ repo: dir, path: path + "2", branch: "whetstone/y-claude", from: "HEAD" }),
+    gitWorkspace.addWorktree({ repo: dir, path: `${path}2`, branch: "whetstone/y-claude", from: "HEAD" }),
     /already exists/,
   );
   await assert.rejects(

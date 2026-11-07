@@ -311,7 +311,7 @@ export default class Whetstone extends View {
           ghost(
             t,
             `ws-${a}`,
-            this.busy === a ? text + "…" : text,
+            this.busy === a ? `${text}…` : text,
             (cx) => this.act(a, cx),
             a === "stop" && this.confirmStop ? t.ansi1 : null,
           ),

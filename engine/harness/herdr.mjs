@@ -33,7 +33,7 @@ const AGENTS = {
 
 export function terminalName(runId, key) {
   const hash = createHash("sha1").update(String(runId)).digest("hex").slice(0, 6);
-  return ("ws-" + hash + "-" + key).slice(0, 32).replace(/-+$/, "");
+  return `ws-${hash}-${key}`.slice(0, 32).replace(/-+$/, "");
 }
 
 export function replyProtocol({ engine, file, key, token }) {
@@ -78,7 +78,7 @@ export function createHerdrHarness({
 }) {
   const started = new Set();
   const args = AGENTS[agent];
-  if (!args) throw new Error("the herdr harness doesn't know how to start agent " + agent);
+  if (!args) throw new Error(`the herdr harness doesn't know how to start agent ${agent}`);
 
   async function info(name) {
     try {
@@ -163,7 +163,7 @@ export function createHerdrHarness({
     } catch {
       /* not there */
     }
-    const argv = ["/usr/bin/env", "PATH=" + path, bins[agent] || agent, ...args(req), message];
+    const argv = ["/usr/bin/env", `PATH=${path}`, bins[agent] || agent, ...args(req), message];
     const out = await hc([
       "run",
       "--bg",
@@ -205,7 +205,7 @@ export function createHerdrHarness({
             return { ok: true, text, sessionId: name, terminal, error: null };
           } catch {
             // Seen for real: the write failed but the shell still ran the send.
-            if (reminded) return fail("the lane reported done but its reply file is missing: " + file);
+            if (reminded) return fail(`the lane reported done but its reply file is missing: ${file}`);
             reminded = true;
             lastNews = Date.now();
             await send(
@@ -237,8 +237,8 @@ export function createHerdrHarness({
             errors += 1;
             await setStatus("error");
             if (errors > 1)
-              return fail("the lane hit an error twice; its screen ends with:\n" + (await screenTail(name)));
-            await send(name, "[whetstone] Your last turn ended with an error. Try the step again.\n\n" + protocol);
+              return fail(`the lane hit an error twice; its screen ends with:\n${await screenTail(name)}`);
+            await send(name, `[whetstone] Your last turn ended with an error. Try the step again.\n\n${protocol}`);
             await setStatus("working");
           }
           // Otherwise a turn ended. A lane may end a turn on purpose (waiting
@@ -258,7 +258,7 @@ export function createHerdrHarness({
         if (paused) {
           paused = false;
           lastNews = Date.now();
-          await send(name, "[whetstone] You were paused. Continue the step you were on.\n\n" + protocol);
+          await send(name, `[whetstone] You were paused. Continue the step you were on.\n\n${protocol}`);
           continue;
         }
 
@@ -270,7 +270,7 @@ export function createHerdrHarness({
           if (!(now.status && now.status.state === "working")) {
             if (nudged) return fail("the lane stopped without reporting");
             nudged = true;
-            await send(name, "[whetstone] You haven't reported this step yet.\n\n" + protocol);
+            await send(name, `[whetstone] You haven't reported this step yet.\n\n${protocol}`);
           }
         }
         if (Date.now() > deadline) return fail("timed out waiting for the lane");
@@ -304,8 +304,8 @@ export function createHerdrHarness({
         if (req.resume && req.session) {
           const live = await info(req.session);
           if (live && live.state === "live") {
-            if (!(await send(req.session, "[whetstone] " + req.prompt + "\n\n" + protocol))) {
-              return { ok: false, text: "", sessionId: req.session, error: "couldn't send the step to " + req.session };
+            if (!(await send(req.session, `[whetstone] ${req.prompt}\n\n${protocol}`))) {
+              return { ok: false, text: "", sessionId: req.session, error: `couldn't send the step to ${req.session}` };
             }
             if (req.onTerminal) await req.onTerminal(live.address);
             return waitDone(req, req.session, live.address, file, doneLine, protocol);
@@ -313,7 +313,7 @@ export function createHerdrHarness({
         }
         const name = terminalName(req.runId, req.role === "writer" ? req.lane : req.key);
         const intro = req.resume ? [preamble(engine), LOST] : [preamble(engine)];
-        const message = [...intro, "[whetstone] " + req.prompt, "", protocol].join("\n");
+        const message = [...intro, `[whetstone] ${req.prompt}`, "", protocol].join("\n");
         const terminal = await start(req, name, message);
         if (req.onTerminal) await req.onTerminal(terminal);
         const result = await waitDone(req, name, terminal, file, doneLine, protocol);
@@ -325,7 +325,7 @@ export function createHerdrHarness({
           ok: false,
           text: "",
           sessionId: req.session,
-          error: "hc: " + String((error && (error.stderr || error.message)) || error).slice(0, 500),
+          error: `hc: ${String((error && (error.stderr || error.message)) || error).slice(0, 500)}`,
         };
       }
     },

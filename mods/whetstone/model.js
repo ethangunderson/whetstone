@@ -11,15 +11,15 @@ export function shortModel(spec) {
   if (!spec) return "";
   const text = String(spec).split("/").pop();
   const at = text.lastIndexOf(":");
-  return at > 0 ? text.slice(0, at) + " · " + text.slice(at + 1) : text;
+  return at > 0 ? `${text.slice(0, at)} · ${text.slice(at + 1)}` : text;
 }
 
 export function elapsed(ms) {
   const s = Math.max(0, Math.round((ms || 0) / 1000));
-  if (s < 60) return s + "s";
+  if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
-  if (m < 60) return m + "m";
-  return Math.floor(m / 60) + "h" + String(m % 60).padStart(2, "0") + "m";
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m`;
 }
 
 const titleCase = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "");
@@ -195,7 +195,7 @@ export function history(events, limit) {
     .map((e) => {
       const d = new Date(e.at);
       return {
-        time: String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"),
+        time: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`,
         text: String(e.text).replace(/^Step \d+\/\d+ · /, ""),
       };
     });
@@ -282,7 +282,7 @@ export function storySections(state) {
       kind: "agreement",
       title: "Agreement",
       integrator,
-      how: sel.decidedBy === "arbiter" ? "They disagreed; the arbiter chose " + integrator : "Both chose " + integrator,
+      how: sel.decidedBy === "arbiter" ? `They disagreed; the arbiter chose ${integrator}` : `Both chose ${integrator}`,
       reasons: ids
         .filter((id) => sel.reasons && sel.reasons[id])
         .map((id) => ({
@@ -328,7 +328,7 @@ function stageLabel(key) {
   if (key.startsWith("converge-")) return "Converge";
   if (key === "integrate") return "Integrate";
   if ((m = /^r(\d+)-(review|respond)-/.exec(key))) return (m[2] === "review" ? "Review " : "Respond ") + m[1];
-  if ((m = /^r(\d+)-fix$/.exec(key))) return "Fix " + m[1];
+  if ((m = /^r(\d+)-fix$/.exec(key))) return `Fix ${m[1]}`;
   return "Sign-off";
 }
 

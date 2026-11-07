@@ -22,7 +22,7 @@ export async function openStore(dir) {
   function save() {
     const snapshot = JSON.stringify(state, null, 2);
     writes = writes.then(async () => {
-      const tmp = statePath + ".tmp";
+      const tmp = `${statePath}.tmp`;
       await writeFile(tmp, snapshot);
       await rename(tmp, statePath);
     });
@@ -39,7 +39,7 @@ export async function openStore(dir) {
     async event(text) {
       const at = new Date().toISOString();
       state.latest = text;
-      await appendFile(join(dir, "events.jsonl"), JSON.stringify({ at, text }) + "\n");
+      await appendFile(join(dir, "events.jsonl"), `${JSON.stringify({ at, text })}\n`);
       return save();
     },
     readControl() {
@@ -53,7 +53,7 @@ export async function writeControl(dir, change) {
   const path = join(dir, "control.json");
   const control = await readJson(path, {});
   change(control);
-  const tmp = path + "." + process.pid + ".tmp";
+  const tmp = `${path}.${process.pid}.tmp`;
   await writeFile(tmp, JSON.stringify(control, null, 2));
   await rename(tmp, path);
   return control;

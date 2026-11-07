@@ -40,11 +40,11 @@ function titleCase(id) {
 
 export function resolveConfig(user = DEFAULT_CONFIG) {
   const lanes = (user.lanes || []).map((lane) => ({ ...lane, name: lane.name || titleCase(lane.id) }));
-  if (lanes.length !== 2) throw new Error("config needs exactly two lanes, got " + lanes.length);
+  if (lanes.length !== 2) throw new Error(`config needs exactly two lanes, got ${lanes.length}`);
   const ids = lanes.map((l) => l.id);
   if (ids[0] === ids[1]) throw new Error("config lanes need distinct ids");
   lanes.forEach((lane) => {
-    if (!lane.harness) throw new Error("config lane " + lane.id + " needs a harness");
+    if (!lane.harness) throw new Error(`config lane ${lane.id} needs a harness`);
   });
   const [a, b] = lanes;
   if (!a.prefix || !b.prefix || a.prefix === b.prefix) {
@@ -62,9 +62,8 @@ export function resolveConfig(user = DEFAULT_CONFIG) {
   for (const tier of TIERS) {
     const t = (user.tiers || {})[tier];
     for (const id of ids) {
-      if (!t || !t[id]) throw new Error("config tiers." + tier + " needs a model for lane " + id);
-      if (t.fallback && !t.fallback[id])
-        throw new Error("config tiers." + tier + ".fallback needs a model for lane " + id);
+      if (!t || !t[id]) throw new Error(`config tiers.${tier} needs a model for lane ${id}`);
+      if (t.fallback && !t.fallback[id]) throw new Error(`config tiers.${tier}.fallback needs a model for lane ${id}`);
     }
     tiers[tier] = t;
   }
@@ -72,8 +71,8 @@ export function resolveConfig(user = DEFAULT_CONFIG) {
   const helper = (name, needsModel) => {
     const h = { ...(DEFAULT_CONFIG[name] || {}), ...(user[name] || {}) };
     if (!user[name] && name === "arbiter") h.lane = ids[1];
-    if (!ids.includes(h.lane)) throw new Error("config " + name + ".lane must be one of " + ids.join(", "));
-    if (needsModel && !h.model) throw new Error("config " + name + ".model is required");
+    if (!ids.includes(h.lane)) throw new Error(`config ${name}.lane must be one of ${ids.join(", ")}`);
+    if (needsModel && !h.model) throw new Error(`config ${name}.model is required`);
     return h;
   };
 

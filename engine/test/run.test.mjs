@@ -24,7 +24,7 @@ const p2 = {
   summary: "nit",
   findings: [{ severity: "P2", title: "n", location: "b.ex:2", evidence: "e", suggestedFix: "f" }],
 };
-const fence = (obj) => "```json\n" + JSON.stringify(obj) + "\n```";
+const fence = (obj) => `\`\`\`json\n${JSON.stringify(obj)}\n\`\`\``;
 
 // The fake answers by stage key, the way the real agents would.
 function scriptFor(o) {
@@ -37,24 +37,24 @@ function scriptFor(o) {
       return outcome === "ok" ? { text: "OK" } : { ok: false, text: "", error: "403: model not available" };
     }
     if (key === "triage")
-      return { text: "Rated.\n" + fence({ difficulty: o.triage ?? "hard", reasoning: "because", risks: [] }) };
+      return { text: `Rated.\n${fence({ difficulty: o.triage ?? "hard", reasoning: "because", risks: [] })}` };
     if (key.startsWith("converge-")) {
       const who = key.slice(9);
       const items = (o.sources && o.sources[who]) || [];
       return {
         text:
           "plan\n" +
-          fence({ integrator: o.votes[who], items: items.map((source, i) => ({ item: "i" + i, source })) }) +
+          fence({ integrator: o.votes[who], items: items.map((source, i) => ({ item: `i${i}`, source })) }) +
           "\nINTEGRATOR: " +
           o.votes[who],
       };
     }
     if (key === "arbiter") return { text: fence({ integrator: "codex", reasoning: "smaller diff", mergedPlan: "p" }) };
     const m = key.match(/^r(\d)-review-(\w+)$/);
-    if (m) return { text: "Reviewed.\n" + fence(o.reviews[+m[1] - 1][m[2]]) };
-    if (/^r\d-fix$/.test(key) && o.dispositions) return { text: "fixed\n" + fence({ dispositions: o.dispositions }) };
+    if (m) return { text: `Reviewed.\n${fence(o.reviews[+m[1] - 1][m[2]])}` };
+    if (/^r\d-fix$/.test(key) && o.dispositions) return { text: `fixed\n${fence({ dispositions: o.dispositions })}` };
     if (key === "signoff") return { text: "Looks right.\nSIGNOFF: approve" };
-    return { text: "ok " + key };
+    return { text: `ok ${key}` };
   };
 }
 
@@ -72,8 +72,8 @@ function fakeHarness(script, delays = {}, { messaging = false } = {}) {
         const lane = req.lane || "helper";
         await sleep(delays[lane] ?? 1);
         const out = await script(req);
-        const session = messaging && !req.resume ? "term-" + (req.role === "writer" ? req.lane : req.key) : req.session;
-        return { ok: true, sessionId: session, terminal: messaging ? "t-" + lane : undefined, ...out };
+        const session = messaging && !req.resume ? `term-${req.role === "writer" ? req.lane : req.key}` : req.session;
+        return { ok: true, sessionId: session, terminal: messaging ? `t-${lane}` : undefined, ...out };
       },
       async close() {
         closed.push(true);
@@ -194,10 +194,10 @@ test("easy and medium use each tier's models and effort for writers and reviewer
     });
     assert.deepEqual(result.models, { claude: pi.tiers[difficulty].claude, codex: pi.tiers[difficulty].codex });
     for (const who of ["claude", "codex"]) {
-      const draft = calls.find((c) => c.key === "draft-" + who);
-      const review = calls.find((c) => c.key === "r1-review-" + who);
-      assert.equal(draft.model + ":" + draft.effort, pi.tiers[difficulty][who]);
-      assert.equal(review.model + ":" + review.effort, pi.tiers[difficulty][who]);
+      const draft = calls.find((c) => c.key === `draft-${who}`);
+      const review = calls.find((c) => c.key === `r1-review-${who}`);
+      assert.equal(`${draft.model}:${draft.effort}`, pi.tiers[difficulty][who]);
+      assert.equal(`${review.model}:${review.effort}`, pi.tiers[difficulty][who]);
     }
   }
 });
@@ -371,7 +371,7 @@ test("writers keep one session per lane; reviewers and helpers get fresh ones", 
     ],
   });
   for (const who of ["claude", "codex"]) {
-    const draft = calls.find((c) => c.key === "draft-" + who);
+    const draft = calls.find((c) => c.key === `draft-${who}`);
     assert.equal(draft.resume, false);
     const later = calls.filter((c) => c.lane === who && c.role === "writer" && c !== draft);
     assert.ok(later.length >= 3);
@@ -413,7 +413,7 @@ test("the story keeps what each stage decided, for the pane", async () => {
     ],
     override: {
       "draft-claude": () => ({
-        text: "Built it.\n" + fence({ approach: "Stream rows.", choices: ["no library"], weakSpots: ["memory"] }),
+        text: `Built it.\n${fence({ approach: "Stream rows.", choices: ["no library"], weakSpots: ["memory"] })}`,
       }),
       "draft-codex": () => ({ text: "Plain prose only.\nMore." }),
       "critique-claude": () => ({
@@ -422,28 +422,26 @@ test("the story keeps what each stage decided, for the pane", async () => {
           "\nBASE: codex",
       }),
       "converge-claude": () => ({
-        text:
-          fence({
-            integrator: "codex",
-            why: "Smaller diff.",
-            concessions: ["their tests"],
-            holding: [],
-            items: [{ item: "stream rows", source: "claude" }],
-          }) + "\nINTEGRATOR: codex",
+        text: `${fence({
+          integrator: "codex",
+          why: "Smaller diff.",
+          concessions: ["their tests"],
+          holding: [],
+          items: [{ item: "stream rows", source: "claude" }],
+        })}\nINTEGRATOR: codex`,
       }),
       "converge-codex": () => ({
-        text:
-          fence({
-            integrator: "codex",
-            why: "Mine has the tests.",
-            concessions: ["streaming"],
-            holding: ["header casing"],
-            items: [
-              { item: "stream rows", source: "claude" },
-              { item: "tests", source: "codex" },
-              { item: "BOM", source: "new" },
-            ],
-          }) + "\nINTEGRATOR: codex",
+        text: `${fence({
+          integrator: "codex",
+          why: "Mine has the tests.",
+          concessions: ["streaming"],
+          holding: ["header casing"],
+          items: [
+            { item: "stream rows", source: "claude" },
+            { item: "tests", source: "codex" },
+            { item: "BOM", source: "new" },
+          ],
+        })}\nINTEGRATOR: codex`,
       }),
       "r1-respond-claude": () => ({
         text: fence({ positions: [{ id: "CL1-1", position: "ACCEPT", why: "Real crash." }] }),
@@ -520,7 +518,7 @@ test("resumed stages that move directories say where to work", async () => {
   for (const key of ["integrate", "r1-fix"]) {
     assert.match(
       calls.find((c) => c.key === key).prompt,
-      new RegExp("cd " + finalPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      new RegExp(`cd ${finalPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
       key,
     );
   }
@@ -541,7 +539,7 @@ test("state.json stays small: stage replies live in the report files", async () 
     override: { "draft-claude": () => ({ text: big }), "draft-codex": () => ({ text: big }) },
   });
   const onDisk = await readFile(join(store.dir, "state.json"), "utf8");
-  assert.ok(onDisk.length < 100_000, "state.json is " + onDisk.length + " bytes");
+  assert.ok(onDisk.length < 100_000, `state.json is ${onDisk.length} bytes`);
   assert.equal(JSON.parse(onDisk).results["draft-claude"].text, undefined);
   assert.equal((await readFile(store.state.results["draft-claude"].file, "utf8")).length, big.length);
 });
@@ -664,7 +662,7 @@ test("step mode waits for approval before each new step", async () => {
   await control(s.store, { approved: 6 });
   await running;
   assert.equal(s.store.state.status, "done");
-  assert.ok(s.store.state.waitedMs >= 60, "waitedMs " + s.store.state.waitedMs);
+  assert.ok(s.store.state.waitedMs >= 60, `waitedMs ${s.store.state.waitedMs}`);
   assert.equal(s.store.state.waitingSince, null);
   assert.ok(Date.parse(s.store.state.endedAt) >= Date.parse(s.store.state.startedAt));
 });

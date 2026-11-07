@@ -10,7 +10,7 @@ const git = promisify(execFile);
 
 async function branchExists(repo, branch) {
   try {
-    await git("git", ["-C", repo, "rev-parse", "--verify", "--quiet", "refs/heads/" + branch]);
+    await git("git", ["-C", repo, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
     return true;
   } catch {
     return false;
@@ -19,8 +19,8 @@ async function branchExists(repo, branch) {
 
 export const gitWorkspace = {
   async addWorktree({ repo, path, branch, from }) {
-    if (existsSync(path)) throw new Error("worktree path already exists: " + path);
-    if (await branchExists(repo, branch)) throw new Error("branch already exists: " + branch);
+    if (existsSync(path)) throw new Error(`worktree path already exists: ${path}`);
+    if (await branchExists(repo, branch)) throw new Error(`branch already exists: ${branch}`);
     await mkdir(dirname(path), { recursive: true });
     await git("git", ["-C", repo, "worktree", "add", "-q", "-b", branch, path, from]);
   },

@@ -28,7 +28,7 @@ const PI = process.env.WHETSTONE_PI || "pi";
 
 function log(kind, data = {}) {
   const entry = { at: new Date().toISOString(), kind, ...data };
-  appendFileSync(join(runDir, "timeline.jsonl"), JSON.stringify(entry) + "\n");
+  appendFileSync(join(runDir, "timeline.jsonl"), `${JSON.stringify(entry)}\n`);
   console.log(entry.at.slice(11, 19), kind, JSON.stringify(data).slice(0, 300));
 }
 

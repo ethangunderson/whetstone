@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { convergeSummary, critiqueSummary, dispositionsOf, draftSummary, positionsOf } from "../story.mjs";
 
-const fence = (obj) => "```json\n" + JSON.stringify(obj) + "\n```";
+const fence = (obj) => `\`\`\`json\n${JSON.stringify(obj)}\n\`\`\``;
 const ids = ["claude", "codex"];
 
 test("draftSummary reads the approach block", () => {
@@ -51,19 +51,18 @@ test("critiqueSummary reads what each side did better, the middle road and the b
 });
 
 test("convergeSummary reads the vote, why, concessions, holdouts and plan items", () => {
-  const text =
-    fence({
-      integrator: "codex",
-      why: "Less to change.",
-      concessions: ["their error type"],
-      holding: ["header casing"],
-      items: [
-        { item: "stream rows", source: "claude" },
-        { item: "error type", source: "codex" },
-        { item: "bad", source: "martian" },
-        "junk",
-      ],
-    }) + "\nINTEGRATOR: codex";
+  const text = `${fence({
+    integrator: "codex",
+    why: "Less to change.",
+    concessions: ["their error type"],
+    holding: ["header casing"],
+    items: [
+      { item: "stream rows", source: "claude" },
+      { item: "error type", source: "codex" },
+      { item: "bad", source: "martian" },
+      "junk",
+    ],
+  })}\nINTEGRATOR: codex`;
   assert.deepEqual(convergeSummary(text, ids), {
     vote: "codex",
     why: "Less to change.",

@@ -6,7 +6,7 @@ import { lastJson, lastTag } from "./parse.mjs";
 
 const clip = (text, n) => {
   const t = String(text || "").trim();
-  return t.length > n ? t.slice(0, n) + "…" : t;
+  return t.length > n ? `${t.slice(0, n)}…` : t;
 };
 const text = (v, n = 600) => (typeof v === "string" ? clip(v, n) : "");
 const list = (v) =>

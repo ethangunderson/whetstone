@@ -272,7 +272,7 @@ test("a run with headless pi lanes still runs in the foreground", async () => {
         ...process.env,
         WHETSTONE_HOME: dir,
         WHETSTONE_HC: hc,
-        PATH: "/usr/bin:/bin:" + dirname(process.execPath),
+        PATH: `/usr/bin:/bin:${dirname(process.execPath)}`,
       },
     }),
   );
@@ -431,7 +431,7 @@ test("run --issue fails before any terminal opens when the issue can't be read",
       () => null,
       (e) => e,
     );
-    assert.ok(failed, c.issue + " should fail");
+    assert.ok(failed, `${c.issue} should fail`);
     assert.match(failed.stderr, c.error);
     assert.ok(!existsSync(join(dir, "app-calls.jsonl")) && !existsSync(join(dir, "hc-calls.jsonl")), "no terminal");
     assert.ok(!existsSync(join(dir, "runs")), "no run folder");

@@ -44,15 +44,15 @@ export class Stopped extends Error {
 
 const roles = {};
 async function rolePrompt(role) {
-  roles[role] ??= await readFile(new URL("./agents/" + role + ".md", import.meta.url), "utf8");
+  roles[role] ??= await readFile(new URL(`./agents/${role}.md`, import.meta.url), "utf8");
   return roles[role];
 }
 
 function dur(ms) {
   const s = Math.round((ms || 0) / 1000);
-  if (s < 60) return s + "s";
+  if (s < 60) return `${s}s`;
   const m = Math.round(s / 60);
-  return m < 60 ? m + "m" : Math.floor(m / 60) + "h" + String(m % 60).padStart(2, "0") + "m";
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m`;
 }
 
 function short(spec) {
@@ -60,7 +60,7 @@ function short(spec) {
 }
 
 function plural(n, word) {
-  return n + " " + word + (n === 1 ? "" : "s");
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
 // Short kebab-case name used for branches, worktrees and run ids.
@@ -107,7 +107,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         s.waitingSince = null;
         s.endedAt = new Date().toISOString();
       });
-      await store.event("Failed · " + String((error && error.message) || error).split("\n")[0]);
+      await store.event(`Failed · ${String((error && error.message) || error).split("\n")[0]}`);
     }
     throw error;
   }
@@ -119,27 +119,27 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     const slug = slugify(args.slug || args.task);
     const baseRef = args.baseRef || "HEAD";
     const maxRounds = Math.min(Math.max(Number(args.maxRounds) || 2, 1), 2);
-    const root = join(dirname(repo), ".whetstone", repoName + "-" + slug);
+    const root = join(dirname(repo), ".whetstone", `${repoName}-${slug}`);
     const reportDir = join(root, "report");
-    const finalBranch = "whetstone/" + slug;
+    const finalBranch = `whetstone/${slug}`;
     const finalPath = join(root, "final");
     const FINAL_PARTITION = 3;
     const ids = config.lanes.map((l) => l.id);
     const byId = Object.fromEntries(config.lanes.map((l) => [l.id, l]));
     const other = { [ids[0]]: ids[1], [ids[1]]: ids[0] };
     const lane = Object.fromEntries(
-      ids.map((id, i) => [id, { path: join(root, id), branch: finalBranch + "-" + id, partition: i + 1 }]),
+      ids.map((id, i) => [id, { path: join(root, id), branch: `${finalBranch}-${id}`, partition: i + 1 }]),
     );
     const reviewPartition = Object.fromEntries(ids.map((id, i) => [id, 4 + i]));
     const name = (id) => byId[id].name;
     const NAME = (id) => byId[id].name.toUpperCase();
 
     for (const l of config.lanes) {
-      if (!harnesses[l.harness]) throw new Error('No harness named "' + l.harness + '" for lane ' + l.name);
+      if (!harnesses[l.harness]) throw new Error(`No harness named "${l.harness}" for lane ${l.name}`);
     }
 
     await store.update((s) => {
-      s.id ??= slug + "-" + Date.now();
+      s.id ??= `${slug}-${Date.now()}`;
       s.startedAt ??= new Date().toISOString();
       s.args = args;
       s.pid = process.pid;
@@ -196,7 +196,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     }
 
     function progress(text) {
-      return store.event((st.step ? "Step " + st.step + "/" + STEPS.length + " · " : "") + text);
+      return store.event((st.step ? `Step ${st.step}/${STEPS.length} · ` : "") + text);
     }
 
     async function enterStep(step) {
@@ -234,7 +234,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
           await store.event(
             pause
               ? "Paused · holding before the next stage"
-              : "Waiting for you to start step " + st.step + "/" + STEPS.length + " · " + STEPS[st.step - 1],
+              : `Waiting for you to start step ${st.step}/${STEPS.length} · ${STEPS[st.step - 1]}`,
           );
         }
         await sleep(pollMs);
@@ -242,14 +242,14 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     }
 
     async function ask(key, laneId, text) {
-      const id = key + "-" + Date.now().toString(36);
+      const id = `${key}-${Date.now().toString(36)}`;
       await store.update((s) => {
         s.question = { id, lane: laneId, stage: key, text, at: new Date().toISOString() };
         s.lanes[laneId].status = "blocked";
         s.status = "blocked";
         s.waitingSince ??= new Date().toISOString();
       });
-      await store.event(name(laneId) + " has a question for you");
+      await store.event(`${name(laneId)} has a question for you`);
       for (;;) {
         const c = await store.readControl();
         if (c.stop) throw new Stopped();
@@ -261,7 +261,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
             s.status = "running";
             endWait(s);
           });
-          await store.event("Answer sent to " + name(laneId));
+          await store.event(`Answer sent to ${name(laneId)}`);
           return answer.trim();
         }
         await sleep(pollMs);
@@ -271,7 +271,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     function fileFor(key) {
       if (!st.files[key]) {
         const n = Object.keys(st.files).length + 1;
-        st.files[key] = join(reportDir, String(n).padStart(2, "0") + "-" + key + ".md");
+        st.files[key] = join(reportDir, `${String(n).padStart(2, "0")}-${key}.md`);
       }
       return st.files[key];
     }
@@ -298,8 +298,8 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
           onTerminal: req.onTerminal,
           onStatus: req.onStatus,
           sessionDir: join(store.dir, "sessions"),
-          logFile: join(store.dir, "logs", req.key + ".jsonl"),
-          activityFile: join(store.dir, "activity", req.key + ".jsonl"),
+          logFile: join(store.dir, "logs", `${req.key}.jsonl`),
+          activityFile: join(store.dir, "activity", `${req.key}.jsonl`),
         });
         return {
           ok: Boolean(r && r.ok),
@@ -355,8 +355,8 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
             s.lanes[o.lane].status = status;
           });
         if (status === "blocked")
-          await progress(name(o.lane) + " needs you in its terminal (a permission prompt or a question)");
-        if (status === "error") await progress(name(o.lane) + " hit an error; asking it to try again");
+          await progress(`${name(o.lane)} needs you in its terminal (a permission prompt or a question)`);
+        if (status === "error") await progress(`${name(o.lane)} hit an error; asking it to try again`);
       };
       const base = {
         key,
@@ -378,7 +378,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
           ...base,
           session: sid,
           resume: true,
-          prompt: "The operator answered your question:\n\n" + answer + "\n\nContinue the stage.",
+          prompt: `The operator answered your question:\n\n${answer}\n\nContinue the stage.`,
         });
         sid = res.sessionId || sid;
       }
@@ -407,7 +407,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       };
       if (result.file) {
         await mkdir(dirname(result.file), { recursive: true });
-        await writeFile(result.file, res.ok ? res.text : "FAILED: " + (res.error || "no output") + "\n\n" + res.text);
+        await writeFile(result.file, res.ok ? res.text : `FAILED: ${res.error || "no output"}\n\n${res.text}`);
       }
       // Replies with a report file stay out of state.json, which the pane reads.
       const kept = result.file ? { ...result, text: undefined } : result;
@@ -423,7 +423,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
 
     function requireOk(result, what) {
       if (!result.ok)
-        throw new Error(what + " failed: " + String(result.error || result.text || "no output").slice(0, 2000));
+        throw new Error(`${what} failed: ${String(result.error || result.text || "no output").slice(0, 2000)}`);
       return result;
     }
 
@@ -440,14 +440,14 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
                 finished[i.who]
                   ? doneText
                     ? doneText(i.who, finished[i.who])
-                    : name(i.who) + " done in " + dur(finished[i.who].ms)
+                    : `${name(i.who)} done in ${dur(finished[i.who].ms)}`
                   : name(i.who) +
                     (doneText ? " reviewer" : "") +
                     " still working (" +
                     dur(Date.now() - t0) +
                     " so far)",
               );
-              return progress(phase + " · " + parts.join(" · ")).then(() => result);
+              return progress(`${phase} · ${parts.join(" · ")}`).then(() => result);
             }
             return result;
           }),
@@ -466,12 +466,12 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     function isolationHint(partition) {
       return [
         "Isolation: another agent runs at the same time on this machine.",
-        "Keep test state separate using partition number " + partition + " wherever the stack allows it,",
+        `Keep test state separate using partition number ${partition} wherever the stack allows it,`,
         "e.g. MIX_TEST_PARTITION=" +
           partition +
           " for Elixir/Ecto, a DB name suffix, a distinct port, or a separate cache dir.",
         "Fetch dependencies inside your worktree if needed; do not symlink into the primary checkout.",
-        args.isolation ? "Project-specific isolation notes: " + args.isolation : "",
+        args.isolation ? `Project-specific isolation notes: ${args.isolation}` : "",
       ]
         .filter(Boolean)
         .join("\n");
@@ -494,7 +494,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         who: "triage",
         structured: isTriage,
         prompt: [
-          "Repository: " + repo + " (read-only).",
+          `Repository: ${repo} (read-only).`,
           "Rate the difficulty of this implementation task:",
           "",
           args.task,
@@ -505,7 +505,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       const rated = lastJson(triage.text);
       difficulty = isTriage(rated) ? rated.difficulty : "medium";
       triageReason = isTriage(rated)
-        ? rated.reasoning + (rated.risks.length ? "\nRisks: " + rated.risks.join("; ") : "")
+        ? rated.reasoning + (rated.risks.length ? `\nRisks: ${rated.risks.join("; ")}` : "")
         : "Triage returned no structured rating; defaulted to medium.";
     }
 
@@ -525,7 +525,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
           call(key, {
             lane: laneId,
             role: "triage",
-            spec: splitModel(spec).model + ":low",
+            spec: `${splitModel(spec).model}:low`,
             cwd: repo,
             helper: true,
             file: false,
@@ -542,16 +542,16 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
           "Difficulty: " +
             difficulty +
             " · checking " +
-            toProbe.map((id) => name(id) + " can reach " + short(tier[id])).join(" and "),
+            toProbe.map((id) => `${name(id)} can reach ${short(tier[id])}`).join(" and "),
         );
-        const probes = await Promise.all(toProbe.map((id) => probe("probe-" + id, id, tier[id])));
+        const probes = await Promise.all(toProbe.map((id) => probe(`probe-${id}`, id, tier[id])));
         const failed = toProbe.filter((id, i) => !probes[i].reachable);
         if (!failed.length) {
           fallback = "primary";
           fallbackReason = "Live probe succeeded.";
         } else {
           for (const id of failed) {
-            const backup = await probe("fallback-" + id, id, tier.fallback[id]);
+            const backup = await probe(`fallback-${id}`, id, tier.fallback[id]);
             if (!backup.reachable) {
               const first = probes[toProbe.indexOf(id)];
               throw new Error(
@@ -571,9 +571,9 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
             }
           }
           fallback = "fallback";
-          fallbackReason = failed.map((id) => name(id) + ": " + probes[toProbe.indexOf(id)].detail).join("; ");
+          fallbackReason = failed.map((id) => `${name(id)}: ${probes[toProbe.indexOf(id)].detail}`).join("; ");
           await progress(
-            failed.map((id) => name(id) + " can't reach " + short(tier[id])).join(", ") +
+            failed.map((id) => `${name(id)} can't reach ${short(tier[id])}`).join(", ") +
               " → " +
               difficulty +
               " tier uses " +
@@ -590,9 +590,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         s.lanes[id].model = models[id];
       });
     });
-    await progress(
-      "Difficulty: " + difficulty + " · " + ids.map((id) => name(id) + " = " + short(models[id])).join(" · "),
-    );
+    await progress(`Difficulty: ${difficulty} · ${ids.map((id) => `${name(id)} = ${short(models[id])}`).join(" · ")}`);
 
     // ---- 2. Independent implementations --------------------------------------
 
@@ -607,9 +605,9 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         args.task,
         "",
         "## Where to work",
-        "Primary repository: " + repo + " (do not modify it).",
-        "Your worktree is " + l.path + " on branch " + l.branch + " (already created from " + baseRef + ").",
-        "Do all work inside " + l.path + ".",
+        `Primary repository: ${repo} (do not modify it).`,
+        `Your worktree is ${l.path} on branch ${l.branch} (already created from ${baseRef}).`,
+        `Do all work inside ${l.path}.`,
         "",
         isolationHint(l.partition),
         "",
@@ -632,11 +630,11 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     await enterStep(2);
     for (const id of ids) await worktree(lane[id].path, lane[id].branch, baseRef);
     await progress(
-      "Both writers drafting independently (" + ids.map((id) => name(id) + ": " + short(models[id])).join(", ") + ")",
+      `Both writers drafting independently (${ids.map((id) => `${name(id)}: ${short(models[id])}`).join(", ")})`,
     );
     const drafts = await parallel(
       ids.map((id) => [
-        "draft-" + id,
+        `draft-${id}`,
         {
           lane: id,
           role: "writer",
@@ -651,14 +649,14 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     );
     const writer = {};
     ids.forEach((id, i) => {
-      writer[id] = requireOk(drafts[i], name(id) + " draft");
+      writer[id] = requireOk(drafts[i], `${name(id)} draft`);
     });
     await store.update((s) => {
       ids.forEach((id) => {
         s.story.drafts[id] = draftSummary(writer[id].text);
       });
     });
-    await progress("Both drafts done (" + ids.map((id, i) => name(id) + " " + dur(drafts[i].ms)).join(", ") + ")");
+    await progress(`Both drafts done (${ids.map((id, i) => `${name(id)} ${dur(drafts[i].ms)}`).join(", ")})`);
 
     // ---- 3. Discussion: critique, then converge -------------------------------
 
@@ -666,8 +664,8 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     function critiqueTask(id) {
       const peer = other[id];
       return [
-        "Your draft is done. Now compare it with the " + NAME(peer) + " lane's independent implementation.",
-        "Peer branch: " + lane[peer].branch + " (worktree " + lane[peer].path + ", read-only for you).",
+        `Your draft is done. Now compare it with the ${NAME(peer)} lane's independent implementation.`,
+        `Peer branch: ${lane[peer].branch} (worktree ${lane[peer].path}, read-only for you).`,
         "Inspect it with e.g. git -C " +
           repo +
           " diff " +
@@ -691,14 +689,14 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         "5. Which branch should be the base for integration (fewer changes needed to reach the middle road), and why.",
         "Then a fenced ```json block summarizing it for the operator's dashboard:",
         '{"peerBetter": ["where the peer\'s version is better"], "mineBetter": ["where yours is better"], "middleRoad": "one or two sentences"}',
-        "End with exactly one line: BASE: " + ids.join(" or BASE: "),
+        `End with exactly one line: BASE: ${ids.join(" or BASE: ")}`,
       ].join("\n");
     }
 
     await progress("Both writers comparing drafts");
     const critiques = await parallel(
       ids.map((id) => [
-        "critique-" + id,
+        `critique-${id}`,
         {
           lane: id,
           role: "writer",
@@ -714,7 +712,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     );
     const critique = {};
     ids.forEach((id, i) => {
-      critique[id] = requireOk(critiques[i], name(id) + " critique").text;
+      critique[id] = requireOk(critiques[i], `${name(id)} critique`).text;
     });
     await store.update((s) => {
       ids.forEach((id) => {
@@ -729,7 +727,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       const live = harnesses[byId[id].harness].messaging && harnesses[byId[peerLane].harness].messaging;
       if (!live || !peerTerminal) return [];
       return [
-        "Before you converge, discuss the open disagreements directly with the " + NAME(peerLane) + " lane.",
+        `Before you converge, discuss the open disagreements directly with the ${NAME(peerLane)} lane.`,
         "Send it messages with: hc send " +
           peerTerminal +
           ' "[peer] <message>" (at most 2 messages from you, each under 1200 characters).',
@@ -743,7 +741,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     function convergeTask(id) {
       const peer = other[id];
       return [
-        "The " + NAME(peer) + " lane has written its comparison and proposed middle road:",
+        `The ${NAME(peer)} lane has written its comparison and proposed middle road:`,
         "<<<",
         critique[peer],
         ">>>",
@@ -756,21 +754,21 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         "",
         "Then add a fenced ```json block listing every item of the final plan and where it comes from:",
         '{"integrator": ' +
-          ids.map((x) => '"' + x + '"').join(" | ") +
+          ids.map((x) => `"${x}"`).join(" | ") +
           ', "why": "why that branch should be the base, one sentence", ' +
           '"concessions": ["what you now accept from the peer"], "holding": ["where you still disagree"], ' +
           '"items": [{"item": "short description", "source": ' +
-          ids.map((x) => '"' + x + '"').join(" | ") +
+          ids.map((x) => `"${x}"`).join(" | ") +
           ' | "both" | "new"}]}',
         "(source = whose draft the item comes from; both = both drafts already did it; new = neither did).",
-        "End with exactly one line: INTEGRATOR: " + ids.join(" or INTEGRATOR: "),
+        `End with exactly one line: INTEGRATOR: ${ids.join(" or INTEGRATOR: ")}`,
       ].join("\n");
     }
 
     await progress("Both writers converging on a middle road");
     const converges = await parallel(
       ids.map((id) => [
-        "converge-" + id,
+        `converge-${id}`,
         {
           lane: id,
           role: "writer",
@@ -788,7 +786,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     const vote = {};
     const planSources = {};
     ids.forEach((id, i) => {
-      plan[id] = requireOk(converges[i], name(id) + " converge").text;
+      plan[id] = requireOk(converges[i], `${name(id)} converge`).text;
       const parsed = lastJson(plan[id]) || {};
       vote[id] =
         lastTag(plan[id], "INTEGRATOR", ids) || (ids.includes(parsed.integrator) ? parsed.integrator : undefined);
@@ -805,11 +803,11 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     let arbiterReasoning = null;
     if (vote[ids[0]] && vote[ids[0]] === vote[ids[1]]) {
       integrator = vote[ids[0]];
-      integratorReason = "Both agents agreed on " + name(integrator) + ".";
+      integratorReason = `Both agents agreed on ${name(integrator)}.`;
     } else {
       await progress(
         "Writers disagreed on the integrator (" +
-          ids.map((id) => name(id) + " → " + (vote[id] ? name(vote[id]) : "?")).join(", ") +
+          ids.map((id) => `${name(id)} → ${vote[id] ? name(vote[id]) : "?"}`).join(", ") +
           ") · arbiter deciding",
       );
       const arbiterLane = config.arbiter.lane;
@@ -831,10 +829,10 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
           "Task:",
           args.task,
           "",
-          ...ids.flatMap((id) => [name(id) + "'s final position:", "<<<", plan[id], ">>>", ""]),
+          ...ids.flatMap((id) => [`${name(id)}'s final position:`, "<<<", plan[id], ">>>", ""]),
           "Inspect both branches. Pick the base that needs the least change to reach the best combined design and state which parts of each plan to keep.",
           'End with a fenced ```json block: {"integrator": ' +
-            ids.map((x) => '"' + x + '"').join(" | ") +
+            ids.map((x) => `"${x}"`).join(" | ") +
             ', "reasoning": "...", "mergedPlan": "..."}',
         ].join("\n"),
       });
@@ -844,12 +842,12 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       integrator = ids.includes(ruling.integrator) ? ruling.integrator : ids[0];
       integratorReason =
         "Votes: " +
-        ids.map((id) => id + "=" + (vote[id] || "none")).join(", ") +
+        ids.map((id) => `${id}=${vote[id] || "none"}`).join(", ") +
         ". Arbiter chose " +
         integrator +
         ": " +
         (ruling.reasoning || "no reasoning returned") +
-        (ruling.mergedPlan ? "\nArbiter's merged plan:\n" + ruling.mergedPlan : "");
+        (ruling.mergedPlan ? `\nArbiter's merged plan:\n${ruling.mergedPlan}` : "");
     }
     const peer = other[integrator];
     const converged = Object.fromEntries(ids.map((id) => [id, convergeSummary(plan[id], ids)]));
@@ -872,16 +870,14 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       };
     });
     await progress(
-      "Integrator: " + name(integrator) + (decidedBy === "arbiter" ? " (arbiter decided)" : " (both agreed)"),
+      `Integrator: ${name(integrator)}${decidedBy === "arbiter" ? " (arbiter decided)" : " (both agreed)"}`,
     );
 
     // ---- 4. Integration --------------------------------------------------------
 
     await enterStep(4);
     await worktree(finalPath, finalBranch, lane[integrator].branch);
-    await progress(
-      name(integrator) + " integrating the middle road into " + finalBranch + " · " + name(peer) + " idle",
-    );
+    await progress(`${name(integrator)} integrating the middle road into ${finalBranch} · ${name(peer)} idle`);
     const integrated = await call("integrate", {
       lane: integrator,
       role: "writer",
@@ -891,9 +887,9 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       stage: "integrate",
       who: integrator,
       prompt: [
-        "You are the integrator. " + integratorReason,
+        `You are the integrator. ${integratorReason}`,
         "",
-        "The " + NAME(peer) + " lane's final position:",
+        `The ${NAME(peer)} lane's final position:`,
         "<<<",
         plan[peer],
         ">>>",
@@ -905,7 +901,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
           ", created from your branch " +
           lane[integrator].branch +
           ".",
-        "Your shell may start in your lane worktree; cd " + finalPath + " before running commands.",
+        `Your shell may start in your lane worktree; cd ${finalPath} before running commands.`,
         "Work only in " +
           finalPath +
           ". Bring in the agreed parts of " +
@@ -951,21 +947,21 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     }
 
     for (let round = 1; round <= maxRounds; round += 1) {
-      await progress("Review round " + round + "/" + maxRounds + " · both reviewers reviewing " + finalBranch);
+      await progress(`Review round ${round}/${maxRounds} · both reviewers reviewing ${finalBranch}`);
       const reviews = await parallel(
         ids.map((id) => [
-          "r" + round + "-review-" + id,
+          `r${round}-review-${id}`,
           {
             lane: id,
             role: "reviewer",
             spec: models[id],
             cwd: finalPath,
-            stage: "review r" + round,
+            stage: `review r${round}`,
             who: id,
             structured: isReview,
             prompt: [
-              "Adversarially review branch " + finalBranch + " in " + finalPath + " against base " + baseRef + ".",
-              "Diff: git diff " + baseRef + "..." + finalBranch,
+              `Adversarially review branch ${finalBranch} in ${finalPath} against base ${baseRef}.`,
+              `Diff: git diff ${baseRef}...${finalBranch}`,
               "",
               "Task the branch is supposed to accomplish:",
               args.task,
@@ -987,11 +983,11 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
             ].join("\n"),
           },
         ]),
-        "Review round " + round + "/" + maxRounds,
+        `Review round ${round}/${maxRounds}`,
         (id, r) => {
           const data = lastJson(r.text);
           const n = isReview(data) ? data.findings.length : 0;
-          return name(id) + " reviewer done in " + dur(r.ms) + " (" + plural(n, "finding") + ")";
+          return `${name(id)} reviewer done in ${dur(r.ms)} (${plural(n, "finding")})`;
         },
       );
 
@@ -1016,7 +1012,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
         };
         reviewMetrics.push(roundMetrics[id]);
         data.findings.forEach((f, n) =>
-          roundInfo.findings.push({ id: byId[id].prefix + round + "-" + (n + 1), reviewer: id, ...f }),
+          roundInfo.findings.push({ id: `${byId[id].prefix + round}-${n + 1}`, reviewer: id, ...f }),
         );
       });
       const findings = roundInfo.findings;
@@ -1030,9 +1026,9 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       rounds.push(roundInfo);
       await publishRounds();
 
-      const tally = plural(findings.length, "finding") + " (" + blocking.length + " P0/P1)";
+      const tally = `${plural(findings.length, "finding")} (${blocking.length} P0/P1)`;
       if (!reviewFailed && findings.length === 0) {
-        await progress("Review round " + round + "/" + maxRounds + " · clean, no findings");
+        await progress(`Review round ${round}/${maxRounds} · clean, no findings`);
         unreviewedFixes = false;
         break;
       }
@@ -1056,7 +1052,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
             )
             .join("\n\n")
         : "Reviewers returned no structured findings. Raw review notes:\n" +
-          ids.map((id) => name(id) + ": " + roundInfo.reviews[id].summary).join("\n");
+          ids.map((id) => `${name(id)}: ${roundInfo.reviews[id].summary}`).join("\n");
 
       // Both original writers take a position on every finding (no edits).
       await progress(
@@ -1071,20 +1067,20 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       );
       const responses = await parallel(
         ids.map((id) => [
-          "r" + round + "-respond-" + id,
+          `r${round}-respond-${id}`,
           {
             lane: id,
             role: "writer",
             spec: models[id],
             cwd: id === integrator ? finalPath : lane[id].path,
             resume: true,
-            stage: "respond r" + round,
+            stage: `respond r${round}`,
             who: id,
             prompt: [
-              "Round " + round + " adversarial review of " + finalBranch + " (" + finalPath + ") is in.",
+              `Round ${round} adversarial review of ${finalBranch} (${finalPath}) is in.`,
               id === integrator
                 ? "You are the integrator; you will apply fixes in the next step."
-                : "The integrator is " + name(integrator) + ". Your position will be passed to them.",
+                : `The integrator is ${name(integrator)}. Your position will be passed to them.`,
               "Do not edit any files in this stage.",
               "",
               findingsText,
@@ -1094,10 +1090,10 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
             ].join("\n"),
           },
         ]),
-        "Review round " + round + "/" + maxRounds + " · writers responding",
+        `Review round ${round}/${maxRounds} · writers responding`,
       );
       ids.forEach((id, i) => {
-        roundInfo.responses[id] = requireOk(responses[i], name(id) + " round " + round + " response").text;
+        roundInfo.responses[id] = requireOk(responses[i], `${name(id)} round ${round} response`).text;
       });
       ids.forEach((id) => {
         const taken = positionsOf(roundInfo.responses[id]);
@@ -1107,20 +1103,20 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       });
       await publishRounds();
 
-      await progress("Review round " + round + "/" + maxRounds + " · " + name(integrator) + " applying fixes");
-      const fixed = await call("r" + round + "-fix", {
+      await progress(`Review round ${round}/${maxRounds} · ${name(integrator)} applying fixes`);
+      const fixed = await call(`r${round}-fix`, {
         lane: integrator,
         role: "writer",
         spec: models[integrator],
         cwd: finalPath,
         resume: true,
-        stage: "fix r" + round,
+        stage: `fix r${round}`,
         who: integrator,
         prompt: [
-          "Apply fixes for round " + round + " in " + finalPath + " on " + finalBranch + ".",
-          "Your shell may start in another directory; cd " + finalPath + " before running commands.",
+          `Apply fixes for round ${round} in ${finalPath} on ${finalBranch}.`,
+          `Your shell may start in another directory; cd ${finalPath} before running commands.`,
           "",
-          "The " + NAME(peer) + " lane's position on each finding:",
+          `The ${NAME(peer)} lane's position on each finding:`,
           "<<<",
           roundInfo.responses[peer],
           ">>>",
@@ -1131,7 +1127,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
           'Also include a fenced ```json block: {"dispositions": [{"id": "<finding id>", "status": "FIXED" | "REJECTED" | "DEFERRED", "why": "one line"}]} covering every finding id.',
         ].join("\n"),
       });
-      writer[integrator] = requireOk(fixed, "round " + round + " fixes");
+      writer[integrator] = requireOk(fixed, `round ${round} fixes`);
       roundInfo.fix = fixed.text;
       const disposed = dispositionsOf(fixed.text);
       findings.forEach((f) => {
@@ -1144,11 +1140,10 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       );
       await publishRounds();
       unreviewedFixes = true;
-      history +=
-        "\nRound " + round + " findings:\n" + findingsText + "\n\nResolution by integrator:\n" + fixed.text + "\n";
+      history += `\nRound ${round} findings:\n${findingsText}\n\nResolution by integrator:\n${fixed.text}\n`;
       // P2-only rounds are not worth another full review; the peer sign-off covers them.
       if (!reviewFailed && blocking.length === 0) {
-        await progress("Review round " + round + " had only P2 findings · skipping another review round");
+        await progress(`Review round ${round} had only P2 findings · skipping another review round`);
         break;
       }
     }
@@ -1157,7 +1152,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
 
     let signoffVerdict = null;
     if (unreviewedFixes) {
-      await progress("Last fixes were not re-reviewed · " + name(peer) + " checking them for sign-off");
+      await progress(`Last fixes were not re-reviewed · ${name(peer)} checking them for sign-off`);
       const signoff = await call("signoff", {
         lane: peer,
         role: "writer",
@@ -1244,13 +1239,10 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
     await progress("Writing the report");
     const reportPath = join(reportDir, "REPORT.md");
     const stageIndex = log
-      .map(
-        (e, i) =>
-          i + 1 + ". " + e.stage + " — " + e.who + " (" + e.model + ")" + (e.ok ? "" : " [FAILED]") + " → " + e.file,
-      )
+      .map((e, i) => `${i + 1}. ${e.stage} — ${e.who} (${e.model})${e.ok ? "" : " [FAILED]"} → ${e.file}`)
       .join("\n");
     const stageBodies = log
-      .map((e) => "=== " + e.stage + " / " + e.who + " / " + e.model + " ===\n" + String(e.text || "").slice(0, 20000))
+      .map((e) => `=== ${e.stage} / ${e.who} / ${e.model} ===\n${String(e.text || "").slice(0, 20000)}`)
       .join("\n\n");
     const roundSummary = rounds
       .map(
@@ -1262,7 +1254,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
           " findings (" +
           r.blocking +
           " P0/P1). Verdicts: " +
-          ids.map((id) => id + "=" + r.reviews[id].verdict).join(", "),
+          ids.map((id) => `${id}=${r.reviews[id].verdict}`).join(", "),
       )
       .join("\n");
     const report = await call("report", {
@@ -1275,26 +1267,26 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       stage: "report",
       who: "reporter",
       prompt: [
-        "Write the final report to exactly: " + reportPath,
+        `Write the final report to exactly: ${reportPath}`,
         "",
         "## Run facts",
-        "Task: " + args.task,
-        "Repository: " + repo + "  Base: " + baseRef,
-        "Difficulty: " + difficulty + ". Why: " + triageReason,
+        `Task: ${args.task}`,
+        `Repository: ${repo}  Base: ${baseRef}`,
+        `Difficulty: ${difficulty}. Why: ${triageReason}`,
         "Model tier: " +
           fallback +
-          (fallbackReason ? ". " + fallbackReason : "") +
+          (fallbackReason ? `. ${fallbackReason}` : "") +
           (fallback === "fallback" ? " The tier fell back to its fallback pair; say so in the Setup section." : ""),
         "Lanes: " +
-          ids.map((id) => name(id) + " via " + byId[id].harness + " (writer + reviewer) = " + models[id]).join("; ") +
+          ids.map((id) => `${name(id)} via ${byId[id].harness} (writer + reviewer) = ${models[id]}`).join("; ") +
           "; triage = " +
           config.triage.model +
           "; reporter = " +
           config.reporter.model,
-        "Lane branches: " + ids.map((id) => lane[id].branch + " (" + lane[id].path + ")").join(", "),
-        "Final branch: " + finalBranch + " (" + finalPath + ")",
-        "Integrator: " + integrator + ". " + integratorReason,
-        "Review rounds (max " + maxRounds + "):\n" + roundSummary,
+        `Lane branches: ${ids.map((id) => `${lane[id].branch} (${lane[id].path})`).join(", ")}`,
+        `Final branch: ${finalBranch} (${finalPath})`,
+        `Integrator: ${integrator}. ${integratorReason}`,
+        `Review rounds (max ${maxRounds}):\n${roundSummary}`,
         "Last fixes re-reviewed by reviewer pair: " +
           (unreviewedFixes ? "NO (peer sign-off only)" : "yes / no fixes needed"),
         "",
@@ -1349,7 +1341,7 @@ export async function runWhetstone({ args, config, harnesses, store, workspace, 
       s.next = null;
       s.endedAt = new Date().toISOString();
     });
-    await store.event("Done · " + finalBranch + " · total " + dur(metrics.totalMs));
+    await store.event(`Done · ${finalBranch} · total ${dur(metrics.totalMs)}`);
 
     return {
       finalBranch,

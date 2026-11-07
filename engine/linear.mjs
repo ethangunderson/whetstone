@@ -63,7 +63,7 @@ export function findHerdrLinear({ env = process.env, home = homedir() } = {}) {
 const missing = (bin) =>
   new Error(
     "herdr-linear not found" +
-      (bin ? " at " + bin : "") +
+      (bin ? ` at ${bin}` : "") +
       ": install the Herdr Linear mod, or set " +
       OVERRIDE +
       " to its path",
@@ -71,7 +71,7 @@ const missing = (bin) =>
 const signedOut = (urlKey) =>
   new Error(
     urlKey
-      ? "herdr-linear is not signed in to the Linear workspace " + urlKey + ": sign in with `herdr-linear login`"
+      ? `herdr-linear is not signed in to the Linear workspace ${urlKey}: sign in with \`herdr-linear login\``
       : "herdr-linear is not signed in to Linear: sign in with `herdr-linear login`",
   );
 
@@ -97,8 +97,7 @@ export function createLinearReader({ bin = findHerdrLinear(), run, timeoutMs = 3
         return (await promisify(execFile)(bin, args, { maxBuffer: 8 << 20, timeout: timeoutMs })).stdout;
       } catch (error) {
         if (error.code === "ENOENT" || error.code === "EACCES") throw missing(bin);
-        if (error.killed)
-          throw new Error("herdr-linear didn't answer within " + timeoutMs / 1000 + "s (" + args[0] + ")");
+        if (error.killed) throw new Error(`herdr-linear didn't answer within ${timeoutMs / 1000}s (${args[0]})`);
         if (isJson(error.stdout)) return error.stdout;
         throw new Error(
           "herdr-linear failed: " +
@@ -114,14 +113,14 @@ export function createLinearReader({ bin = findHerdrLinear(), run, timeoutMs = 3
     try {
       return JSON.parse(out);
     } catch {
-      throw new Error("herdr-linear gave an answer whetstone can't read: " + String(out).slice(0, 200));
+      throw new Error(`herdr-linear gave an answer whetstone can't read: ${String(out).slice(0, 200)}`);
     }
   };
   const app = async (req, what) => {
     const answer = await call(["app", JSON.stringify(req)]);
     if (answer && answer.error) {
       if (answer.signedOut) throw signedOut(answer.urlKey || what.urlKey);
-      throw new Error("herdr-linear couldn't read " + (what.key || "Linear") + ": " + answer.error);
+      throw new Error(`herdr-linear couldn't read ${what.key || "Linear"}: ${answer.error}`);
     }
     return answer;
   };
@@ -136,13 +135,13 @@ export function createLinearReader({ bin = findHerdrLinear(), run, timeoutMs = 3
         const answer = await call(["issues", "--force", JSON.stringify([ref.key])]);
         if (answer && answer.error) {
           if (answer.signedOut) throw signedOut();
-          throw new Error("herdr-linear couldn't look up " + ref.key + ": " + answer.error);
+          throw new Error(`herdr-linear couldn't look up ${ref.key}: ${answer.error}`);
         }
         if (!Array.isArray(answer))
-          throw new Error("herdr-linear gave an answer whetstone can't read: " + JSON.stringify(answer).slice(0, 200));
+          throw new Error(`herdr-linear gave an answer whetstone can't read: ${JSON.stringify(answer).slice(0, 200)}`);
         const found = answer.find((r) => String(r && r.key).toUpperCase() === ref.key);
         if (found && found.error && found.signedOut) throw signedOut();
-        if (found && found.error) throw new Error("herdr-linear couldn't look up " + ref.key + ": " + found.error);
+        if (found && found.error) throw new Error(`herdr-linear couldn't look up ${ref.key}: ${found.error}`);
         if (!found || !found.issue) {
           throw new Error(
             "Linear issue " +
@@ -158,7 +157,7 @@ export function createLinearReader({ bin = findHerdrLinear(), run, timeoutMs = 3
       if (!workspace) throw signedOut(urlKey);
       const detail = await app({ op: "detail", issue: ref.key, workspace: workspace.id }, { key: ref.key, urlKey });
       const issue = detail && detail.issue;
-      if (!issue) throw new Error("Linear issue " + ref.key + " not found in " + urlKey);
+      if (!issue) throw new Error(`Linear issue ${ref.key} not found in ${urlKey}`);
       return {
         key: issue.identifier || ref.key,
         title: issue.title || "",
@@ -173,10 +172,10 @@ export function createLinearReader({ bin = findHerdrLinear(), run, timeoutMs = 3
 
 // What the lanes get as the task.
 export function issueTask(issue, notes) {
-  const parts = [issue.key + ": " + issue.title + (issue.url ? "\n" + issue.url : "")];
+  const parts = [`${issue.key}: ${issue.title}${issue.url ? `\n${issue.url}` : ""}`];
   if (String(issue.description || "").trim()) parts.push(issue.description.trim());
-  if (String(notes || "").trim()) parts.push("Notes from the operator:\n" + notes.trim());
+  if (String(notes || "").trim()) parts.push(`Notes from the operator:\n${notes.trim()}`);
   return parts.join("\n\n");
 }
 
-export const issueSlug = (issue) => slugify(issue.key + " " + issue.title);
+export const issueSlug = (issue) => slugify(`${issue.key} ${issue.title}`);

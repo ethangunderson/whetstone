@@ -179,16 +179,15 @@ test("laneStages lists a lane's stages in run order with their state", () => {
 });
 
 test("activityItems pairs each tool call with its result and keeps text and errors", () => {
-  const lines =
-    [
-      { at: "t", kind: "tool", id: "a", tool: "bash", text: "npm test" },
-      { at: "t", kind: "text", text: "Tests pass." },
-      { at: "t", kind: "tool_end", id: "a", ok: true, text: "pass 3", ms: 1200 },
-      { at: "t", kind: "tool", id: "b", tool: "edit", text: "src/x.js" },
-      { at: "t", kind: "error", text: "overloaded" },
-    ]
-      .map((l) => JSON.stringify(l))
-      .join("\n") + "\nnot json\n";
+  const lines = `${[
+    { at: "t", kind: "tool", id: "a", tool: "bash", text: "npm test" },
+    { at: "t", kind: "text", text: "Tests pass." },
+    { at: "t", kind: "tool_end", id: "a", ok: true, text: "pass 3", ms: 1200 },
+    { at: "t", kind: "tool", id: "b", tool: "edit", text: "src/x.js" },
+    { at: "t", kind: "error", text: "overloaded" },
+  ]
+    .map((l) => JSON.stringify(l))
+    .join("\n")}\nnot json\n`;
   assert.deepEqual(activityItems(lines), [
     { kind: "tool", tool: "bash", text: "npm test", status: "ok", output: "pass 3", ms: 1200 },
     { kind: "text", text: "Tests pass." },

@@ -56,7 +56,7 @@ function fakeHc({ inbox, behave = {} } = {}) {
     }
     await sleep(5);
     // Like an agent's `cat > file`: the folder has to exist already.
-    await writeFile(file, "reply from " + term.name + " #" + term.messages.length);
+    await writeFile(file, `reply from ${term.name} #${term.messages.length}`);
     inbox.push(done);
     setStatus(term, "done");
   };
@@ -68,7 +68,7 @@ function fakeHc({ inbox, behave = {} } = {}) {
       const name = nameArg("--name");
       const term = {
         name,
-        address: "t" + ++n,
+        address: `t${++n}`,
         state: "live",
         status: "working",
         messages: [],
@@ -114,7 +114,7 @@ function fakeHc({ inbox, behave = {} } = {}) {
         status: { app: "pi", state: t.status },
       });
     }
-    if (cmd === "read") return "last lines of " + t.name + "\nError: 529 overloaded";
+    if (cmd === "read") return `last lines of ${t.name}\nError: 529 overloaded`;
     if (cmd === "interrupt") {
       t.interrupted = (t.interrupted || 0) + 1;
       setStatus(t, "idle");
@@ -128,7 +128,7 @@ function fakeHc({ inbox, behave = {} } = {}) {
       delete terms[t.name];
       return "{}";
     }
-    throw new Error("unexpected hc " + cmd);
+    throw new Error(`unexpected hc ${cmd}`);
   }
   return { hc, calls, terms, setStatus, exit };
 }
@@ -181,7 +181,7 @@ test("replyProtocol tells the agent where to write and what to send", () => {
     key: "draft-claude",
     token: "k1",
   });
-  const { file, done } = parseAsk(text + "\n");
+  const { file, done } = parseAsk(`${text}\n`);
   assert.equal(file, "/r/replies/draft-claude-k1.md");
   assert.equal(done, "done draft-claude k1");
   assert.match(text, /hc send ws-e/);

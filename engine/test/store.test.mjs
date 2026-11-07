@@ -27,7 +27,7 @@ test("concurrent updates all land", async () => {
   await Promise.all(
     Array.from({ length: 20 }, (_, i) =>
       store.update((s) => {
-        s["k" + i] = i;
+        s[`k${i}`] = i;
       }),
     ),
   );

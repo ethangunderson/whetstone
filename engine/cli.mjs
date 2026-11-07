@@ -46,7 +46,7 @@ export function parseRunArgs(argv) {
   const out = {};
   const words = [];
   const value = (i, flag) => {
-    if (i >= argv.length) throw new Error(flag + " needs a value");
+    if (i >= argv.length) throw new Error(`${flag} needs a value`);
     return argv[i];
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -96,7 +96,7 @@ export function parseRunArgs(argv) {
         out.stepMode = true;
         break;
       default:
-        throw new Error("unknown option " + a);
+        throw new Error(`unknown option ${a}`);
     }
   }
   if (out.issue && words.length)
@@ -134,7 +134,7 @@ function which(name) {
 // Lanes get no herdr.* labels: started from the engine's terminal, they are
 // its sub-agents and show nested under it, not as tabs of their own.
 export function laneLabels(state) {
-  return ["whetstone=" + state.id];
+  return [`whetstone=${state.id}`];
 }
 
 const usesHerdr = (config) => config.lanes.some((l) => l.harness === "herdr");
@@ -171,9 +171,9 @@ async function launchEngine(store, args) {
   const id = store.state.id;
   const argv = [
     "/usr/bin/env",
-    "PATH=" + process.env.PATH,
-    "WHETSTONE_HOME=" + HOME,
-    "WHETSTONE_ENGINE=" + id,
+    `PATH=${process.env.PATH}`,
+    `WHETSTONE_HOME=${HOME}`,
+    `WHETSTONE_ENGINE=${id}`,
     process.execPath,
     CLI_PATH,
     "__engine",
@@ -181,7 +181,7 @@ async function launchEngine(store, args) {
   ];
   let terminal;
   try {
-    const spec = { name: "Whetstone · " + args.slug, folder: args.repo, argv, ...(space ? { space } : {}) };
+    const spec = { name: `Whetstone · ${args.slug}`, folder: args.repo, argv, ...(space ? { space } : {}) };
     const { stdout } = await promisify(execFile)(HERDR_APP, ["do", "tab.new", JSON.stringify(spec)]);
     terminal = JSON.parse(stdout).terminal;
   } catch {
@@ -196,7 +196,7 @@ async function launchEngine(store, args) {
         args.repo,
         "--no-parent",
         "--label",
-        "whetstone=" + id,
+        `whetstone=${id}`,
         "--",
         ...argv,
       ]),
@@ -208,10 +208,10 @@ async function launchEngine(store, args) {
     s.engineTerminal = terminal;
     s.space = space;
   });
-  console.log("Whetstone run " + id);
-  console.log("  engine  " + terminal + (space ? ' (tab "Whetstone · ' + args.slug + '")' : ""));
-  console.log("  state   " + store.dir);
-  console.log("Follow it in Herdr's Whetstone panel, or: whetstone status " + id);
+  console.log(`Whetstone run ${id}`);
+  console.log(`  engine  ${terminal}${space ? ` (tab "Whetstone · ${args.slug}")` : ""}`);
+  console.log(`  state   ${store.dir}`);
+  console.log(`Follow it in Herdr's Whetstone panel, or: whetstone status ${id}`);
   return 0;
 }
 
@@ -244,7 +244,7 @@ async function findRun(prefix) {
   const exact = runs.find((r) => r.id === prefix);
   if (exact) return exact;
   const matches = runs.filter((r) => r.id.startsWith(prefix));
-  if (!matches.length) throw new Error("no run matches " + prefix);
+  if (!matches.length) throw new Error(`no run matches ${prefix}`);
   if (matches.length > 1)
     throw new Error(
       prefix +
@@ -293,8 +293,8 @@ function stamp(date = new Date()) {
 
 async function execute(store, args) {
   const config = await loadConfig();
-  console.log("Whetstone run " + store.state.id);
-  console.log("  state   " + store.dir);
+  console.log(`Whetstone run ${store.state.id}`);
+  console.log(`  state   ${store.dir}`);
   try {
     const result = await runWhetstone({
       args,
@@ -303,11 +303,11 @@ async function execute(store, args) {
       store,
       workspace: gitWorkspace,
     });
-    console.log("Done: " + result.finalBranch + " (" + result.finalPath + ")");
-    console.log("Report: " + result.report);
+    console.log(`Done: ${result.finalBranch} (${result.finalPath})`);
+    console.log(`Report: ${result.report}`);
     return 0;
   } catch (error) {
-    console.error("whetstone: " + error.message);
+    console.error(`whetstone: ${error.message}`);
     return 1;
   }
 }
@@ -324,7 +324,7 @@ const commands = {
       args.slug ??= issueSlug(issue);
     }
     args.slug = slugify(args.slug || args.task);
-    const id = args.slug + "-" + stamp();
+    const id = `${args.slug}-${stamp()}`;
     const store = await openStore(join(RUNS, id));
     // state.issue now, not only when the engine starts, so the pane can link it right away.
     await store.update((s) => {
@@ -345,9 +345,9 @@ const commands = {
       console.log(JSON.stringify({ ...issue, slug: issueSlug(issue) }, null, 2));
       return 0;
     }
-    console.log(issue.key + " · " + issue.title);
+    console.log(`${issue.key} · ${issue.title}`);
     console.log(issue.url);
-    if (issue.description) console.log("\n" + issue.description);
+    if (issue.description) console.log(`\n${issue.description}`);
     return 0;
   },
 
@@ -364,16 +364,16 @@ const commands = {
       await writeControl(run.dir, (c) => {
         c.pause = null;
       });
-      console.log("Resumed " + run.id);
+      console.log(`Resumed ${run.id}`);
       return 0;
     }
-    if (run.state.status === "done") throw new Error(run.id + " already finished");
-    if (!run.state.args) throw new Error(run.id + " has no saved args to restart from");
+    if (run.state.status === "done") throw new Error(`${run.id} already finished`);
+    if (!run.state.args) throw new Error(`${run.id} has no saved args to restart from`);
     await writeControl(run.dir, (c) => {
       c.pause = null;
       c.stop = false;
     });
-    console.log("Restarting " + run.id + " from its last finished stage");
+    console.log(`Restarting ${run.id} from its last finished stage`);
     const store = await openStore(run.dir);
     if (usesHerdr(await loadConfig())) return launchEngine(store, run.state.args);
     return execute(store, run.state.args);
@@ -385,7 +385,7 @@ const commands = {
     await writeControl(run.dir, (c) => {
       c.pause = now ? "now" : "after-step";
     });
-    console.log(now ? "Pausing " + run.id + " now" : "Pausing " + run.id + " after the running stage");
+    console.log(now ? `Pausing ${run.id} now` : `Pausing ${run.id} after the running stage`);
     return 0;
   },
 
@@ -394,7 +394,7 @@ const commands = {
     await writeControl(run.dir, (c) => {
       c.stop = true;
     });
-    console.log("Stopping " + run.id + " at the next stage boundary");
+    console.log(`Stopping ${run.id} at the next stage boundary`);
     return 0;
   },
 
@@ -404,19 +404,19 @@ const commands = {
     await writeControl(run.dir, (c) => {
       c.approved = Math.max(Number(c.approved) || 1, target);
     });
-    console.log("Approved " + run.id + " through step " + target + "/" + STEPS.length);
+    console.log(`Approved ${run.id} through step ${target}/${STEPS.length}`);
     return 0;
   },
 
   async answer([prefix, ...words]) {
     const run = await findRun(prefix);
     const q = run.state.question;
-    if (!q) throw new Error(run.id + " has no open question");
+    if (!q) throw new Error(`${run.id} has no open question`);
     if (!words.length) throw new Error("answer needs text");
     await writeControl(run.dir, (c) => {
       c.answers = { ...(c.answers || {}), [q.id]: words.join(" ") };
     });
-    console.log("Answer queued for " + (run.state.lanes?.[q.lane]?.name || q.lane));
+    console.log(`Answer queued for ${run.state.lanes?.[q.lane]?.name || q.lane}`);
     return 0;
   },
 
@@ -426,7 +426,7 @@ const commands = {
         [
           id.padEnd(40),
           shownStatus(state).padEnd(12),
-          ((state.step || 0) + "/" + STEPS.length).padEnd(5),
+          `${state.step || 0}/${STEPS.length}`.padEnd(5),
           state.latest || "",
         ]
           .join("  ")
@@ -443,7 +443,7 @@ const commands = {
       return 0;
     }
     const s = run.state;
-    console.log(run.id + " · " + shownStatus(s));
+    console.log(`${run.id} · ${shownStatus(s)}`);
     if (s.latest) console.log(s.latest);
     for (const lane of Object.values(s.lanes || {})) {
       console.log(
@@ -454,8 +454,8 @@ const commands = {
       );
     }
     if (s.question)
-      console.log("\nQuestion from " + (s.lanes?.[s.question.lane]?.name || s.question.lane) + ":\n" + s.question.text);
-    if (s.report && s.status === "done") console.log("\nReport: " + s.report);
+      console.log(`\nQuestion from ${s.lanes?.[s.question.lane]?.name || s.question.lane}:\n${s.question.text}`);
+    if (s.report && s.status === "done") console.log(`\nReport: ${s.report}`);
     return 0;
   },
 
@@ -482,7 +482,7 @@ const commands = {
           " " +
           lane.harness.padEnd(12) +
           " " +
-          (h ? (found.installed ? "ok " + (found.version || "") : "not installed") : "no adapter yet"),
+          (h ? (found.installed ? `ok ${found.version || ""}` : "not installed") : "no adapter yet"),
       );
     }
     return 0;
@@ -500,7 +500,7 @@ async function main([command, ...rest]) {
   try {
     return await handler(rest);
   } catch (error) {
-    console.error("whetstone: " + error.message);
+    console.error(`whetstone: ${error.message}`);
     return 1;
   }
 }

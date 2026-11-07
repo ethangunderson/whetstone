@@ -108,7 +108,7 @@ test("parsePiOutput treats an aborted or empty run as a failure and skips junk l
     parsePiOutput([assistant("partial"), line({ type: "agent_settled", aborted: true })].join("\n")).ok,
     false,
   );
-  const empty = parsePiOutput("not json\n" + line({ type: "session", id: "abc" }));
+  const empty = parsePiOutput(`not json\n${line({ type: "session", id: "abc" })}`);
   assert.equal(empty.ok, false);
   assert.match(empty.error, /no assistant reply/);
 });
@@ -175,7 +175,7 @@ test("piActivity turns pi events into a readable activity stream", () => {
 // A stand-in `pi` that records its argv and prints a scripted reply.
 async function fakePi(dir, script) {
   const bin = join(dir, "fake-pi.mjs");
-  await writeFile(bin, "#!/usr/bin/env node\n" + script);
+  await writeFile(bin, `#!/usr/bin/env node\n${script}`);
   await chmod(bin, 0o755);
   return bin;
 }
