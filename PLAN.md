@@ -177,11 +177,13 @@ Several runs: a small picker in the header when more than one run is active.
 
 ```
 engine/
-  cli.mjs          whetstone run|resume|status|pause|stop
+  cli.mjs          whetstone run|issue|resume|status|pause|stop
   run.mjs          stage sequence ported from dual-pr.js
   harness/         pi.mjs, claude-code.mjs, codex.mjs (the only CLI-aware code)
   config.mjs       defaults, tiers, fallback
   workspace.mjs    git worktrees (the engine creates them, not the agents)
+  linear.mjs       `run --issue` / `issue`: reads a Linear issue through herdr-linear (read only;
+                   the one place that knows herdr-linear, so an API-key reader can replace it)
   parse.mjs        lastJson, lastTag, schema checks
   state.mjs        atomic state.json, control.json, events.jsonl
   agents/          writer|reviewer|triage|reporter.md (from ~/.pi/agent/agents/dual-*.md)

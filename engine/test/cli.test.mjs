@@ -38,6 +38,14 @@ test("parseRunArgs reads flags and the task text", () => {
   assert.throws(() => parseRunArgs([]), /task/);
 });
 
+test("parseRunArgs takes an issue instead of task text, with optional notes", () => {
+  assert.deepEqual(parseRunArgs(["--issue", "WHE-5"]), { issue: "WHE-5" });
+  assert.deepEqual(parseRunArgs(["--issue", "WHE-5", "--notes", "keep it small"]), { issue: "WHE-5", notes: "keep it small" });
+  assert.throws(() => parseRunArgs(["--notes", "and add a test", "Fix", "it"]), /--notes requires --issue/);
+  assert.throws(() => parseRunArgs(["--issue", "WHE-5", "Fix", "it"]), /either task text or --issue/);
+  assert.throws(() => parseRunArgs(["--issue"]), /--issue needs a value/);
+});
+
 test("slugify matches the engine's branch naming", () => {
   assert.equal(slugify("Add CSV export to the /reports page!"), "add-csv-export-to-the-reports-page");
   assert.equal(slugify("x".repeat(60)).length, 40);
@@ -203,4 +211,98 @@ test("a run with headless pi lanes still runs in the foreground", async () => {
   }));
   const { existsSync } = await import("node:fs");
   assert.ok(!existsSync(join(dir, "hc-calls.jsonl")) || !(await hcCalls(dir)).some((c) => c[0] === "run"), "no engine terminal");
+});
+
+// A stand-in for herdr-linear 0.14.3: WHE-5 exists in eg-whetstone; status
+// lists the workspaces in $FAKE_LINEAR_WORKSPACES (default: eg-whetstone).
+async function fakeHerdrLinear(dir) {
+  const { writeFile: write, chmod } = await import("node:fs/promises");
+  const bin = join(dir, "fake-herdr-linear.mjs");
+  await write(bin, `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(join(dir, "linear-calls.jsonl"))}, JSON.stringify(args) + "\\n");
+const url = "https://linear.app/eg-whetstone/issue/WHE-5/lanes-must-not-start";
+const workspaces = JSON.parse(process.env.FAKE_LINEAR_WORKSPACES || '[{"id":"ws-1","name":"whetstone","urlKey":"eg-whetstone"}]');
+if (args[0] === "issues") {
+  const keys = JSON.parse(args[args.length - 1]);
+  console.log(JSON.stringify(keys.map((key) => ({ key, issue: key === "WHE-5" ? { identifier: key, title: "Lanes must not start", url, workspace: "eg-whetstone" } : null }))));
+} else {
+  const req = JSON.parse(args[1]);
+  if (req.op === "status") console.log(JSON.stringify({ version: "0.14.3", workspaces }));
+  else if (!workspaces.some((w) => w.id === req.workspace)) console.log(JSON.stringify({ error: "not signed in to that workspace any more: " + req.workspace, signedOut: true }));
+  else console.log(JSON.stringify({ description: "Lanes start before the engine is ready.", issue: { identifier: "WHE-5", title: "Lanes must not start", url, state: { name: "Todo" } }, labels: [] }));
+}
+`);
+  await chmod(bin, 0o755);
+  return bin;
+}
+
+test("issue prints the issue without starting anything", async () => {
+  const dir = await home();
+  const linear = await fakeHerdrLinear(dir);
+  const out = await run("node", [CLI, "issue", "WHE-5", "--json"], { env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HERDR_LINEAR: linear } });
+  assert.deepEqual(JSON.parse(out.stdout), {
+    key: "WHE-5", title: "Lanes must not start", url: "https://linear.app/eg-whetstone/issue/WHE-5/lanes-must-not-start",
+    description: "Lanes start before the engine is ready.", state: "Todo", workspace: "eg-whetstone",
+    slug: "whe-5-lanes-must-not-start"
+  }, "a stable shape for the start form; the slug is the one the run will use");
+  const bad = await run("node", [CLI, "issue", "WHE-5", "--bogus"], { env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HERDR_LINEAR: linear } }).then(() => null, (e) => e);
+  assert.ok(bad, "unknown arguments are refused");
+  assert.match(bad.stderr, /usage: whetstone issue <key\|url> \[--json\]/);
+  const text = await run("node", [CLI, "issue", "WHE-5"], { env: { ...process.env, WHETSTONE_HOME: dir, WHETSTONE_HERDR_LINEAR: linear } });
+  assert.match(text.stdout, /^WHE-5 · Lanes must not start\n/);
+  const { existsSync } = await import("node:fs");
+  assert.ok(!existsSync(join(dir, "runs")), "no run created");
+});
+
+test("run --issue gives the lanes the issue and records it on the run", async () => {
+  const dir = await home();
+  const hc = await fakeHc(dir);
+  const app = await fakeHerdrApp(dir);
+  const linear = await fakeHerdrLinear(dir);
+  const repo = join(dir, "app");
+  await mkdir(repo, { recursive: true });
+  await run("node", [CLI, "run", "--repo", repo, "--issue", "WHE-5", "--notes", "Keep it small."], {
+    env: { ...process.env, WHETSTONE_HOME: dir, HC_TERMINAL_ID: "t8", WHETSTONE_HC: hc, WHETSTONE_HERDR_APP: app, WHETSTONE_HERDR_LINEAR: linear }
+  });
+  const spec = JSON.parse((await readFile(join(dir, "app-calls.jsonl"), "utf8")).trim().split("\n").map((l) => JSON.parse(l))[0][2]);
+  assert.equal(spec.name, "Whetstone · whe-5-lanes-must-not-start");
+  const id = spec.argv[spec.argv.length - 1];
+  assert.match(id, /^whe-5-lanes-must-not-start-/);
+  const { args, issue } = JSON.parse(await readFile(join(dir, "runs", id, "state.json"), "utf8"));
+  assert.deepEqual(issue, args.issue, "the pane can link the issue before the engine starts");
+  assert.equal(args.slug, "whe-5-lanes-must-not-start");
+  assert.deepEqual(args.issue, { key: "WHE-5", title: "Lanes must not start", url: "https://linear.app/eg-whetstone/issue/WHE-5/lanes-must-not-start" });
+  assert.match(args.task, /^WHE-5: Lanes must not start\n/);
+  assert.match(args.task, /Lanes start before the engine is ready\./);
+  assert.match(args.task, /Keep it small\.$/);
+  assert.equal(args.notes, "Keep it small.");
+  const calls = (await readFile(join(dir, "linear-calls.jsonl"), "utf8")).trim().split("\n").map((l) => JSON.parse(l));
+  assert.ok(calls.every((c) => c[0] === "issues" || ["status", "detail"].includes(JSON.parse(c[1]).op)), "read only");
+});
+
+test("run --issue fails before any terminal opens when the issue can't be read", async () => {
+  const { existsSync } = await import("node:fs");
+  const cases = [
+    { issue: "WHE-999", env: {}, error: /Linear issue WHE-999 not found/ },
+    { issue: "WHE-5", env: { FAKE_LINEAR_WORKSPACES: "[]" }, error: /herdr-linear is not signed in to Linear/ },
+    { issue: "https://linear.app/eg-whetstone/issue/WHE-5/x", env: { FAKE_LINEAR_WORKSPACES: '[{"id":"o","name":"o","urlKey":"other"}]' }, error: /not signed in to the Linear workspace eg-whetstone/ },
+    { issue: "WHE-5", env: { WHETSTONE_HERDR_LINEAR: "/nonexistent/herdr-linear" }, error: /herdr-linear not found at \/nonexistent\/herdr-linear/ }
+  ];
+  for (const c of cases) {
+    const dir = await home();
+    const hc = await fakeHc(dir);
+    const app = await fakeHerdrApp(dir);
+    const linear = await fakeHerdrLinear(dir);
+    const repo = join(dir, "app");
+    await mkdir(repo, { recursive: true });
+    const failed = await run("node", [CLI, "run", "--repo", repo, "--issue", c.issue], {
+      env: { ...process.env, WHETSTONE_HOME: dir, HC_TERMINAL_ID: "t8", WHETSTONE_HC: hc, WHETSTONE_HERDR_APP: app, WHETSTONE_HERDR_LINEAR: linear, ...c.env }
+    }).then(() => null, (e) => e);
+    assert.ok(failed, c.issue + " should fail");
+    assert.match(failed.stderr, c.error);
+    assert.ok(!existsSync(join(dir, "app-calls.jsonl")) && !existsSync(join(dir, "hc-calls.jsonl")), "no terminal");
+    assert.ok(!existsSync(join(dir, "runs")), "no run folder");
+  }
 });

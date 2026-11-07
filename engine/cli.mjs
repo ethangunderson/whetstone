@@ -5,6 +5,9 @@
 // between stages.
 //
 //   whetstone run [options] <task…>      start a run in the foreground
+//   whetstone run [options] --issue <key|url> [--notes <text>]
+//                                        the task is a Linear issue (read through herdr-linear)
+//   whetstone issue <key|url> [--json]   print that issue without starting anything
 //   whetstone list                       runs, newest first
 //   whetstone status <id> [--json]
 //   whetstone pause <id> [--now]         hold before the next stage (--now: also stop running lanes; phase 3)
@@ -16,7 +19,7 @@
 //
 // run options: --repo <path> (default: this git repo), --slug, --base <ref>,
 //   --difficulty easy|medium|hard, --rounds 1|2, --fallback / --no-fallback,
-//   --step-mode, --isolation <text>
+//   --step-mode, --isolation <text>, --notes <text> (with --issue: added to the task)
 //
 // WHETSTONE_HOME (default ~/.whetstone) holds config.json and runs/<id>/.
 import { execFile } from "node:child_process";
@@ -33,6 +36,7 @@ import { gitWorkspace } from "./workspace.mjs";
 import { createPiHarness } from "./harness/pi.mjs";
 import { createHerdrHarness, terminalName } from "./harness/herdr.mjs";
 import { createInbox } from "./inbox.mjs";
+import { createLinearReader, issueSlug, issueTask } from "./linear.mjs";
 
 const HOME = process.env.WHETSTONE_HOME || join(homedir(), ".whetstone");
 const RUNS = join(HOME, "runs");
@@ -54,6 +58,8 @@ export function parseRunArgs(argv) {
       case "--slug": out.slug = value(++i, a); break;
       case "--base": out.baseRef = value(++i, a); break;
       case "--isolation": out.isolation = value(++i, a); break;
+      case "--issue": out.issue = value(++i, a); break;
+      case "--notes": out.notes = value(++i, a); break;
       case "--difficulty":
         out.difficulty = value(++i, a);
         if (!DIFFICULTIES.includes(out.difficulty)) throw new Error("--difficulty must be easy, medium or hard");
@@ -68,6 +74,9 @@ export function parseRunArgs(argv) {
       default: throw new Error("unknown option " + a);
     }
   }
+  if (out.issue && words.length) throw new Error("pass either task text or --issue, not both (add instructions with --notes)");
+  if (out.notes !== undefined && !out.issue) throw new Error("--notes requires --issue");
+  if (out.issue) return out;
   if (!words.length) throw new Error("whetstone run needs a task");
   out.task = words.join(" ");
   return out;
@@ -215,12 +224,34 @@ const commands = {
   async run(argv) {
     const args = parseRunArgs(argv);
     args.repo = resolve(args.repo || await gitRoot(process.cwd()));
+    // Read before anything starts, so a bad key or a signed-out Linear fails here.
+    if (args.issue) {
+      const issue = await createLinearReader().read(args.issue);
+      args.issue = { key: issue.key, title: issue.title, url: issue.url };
+      args.task = issueTask(issue, args.notes);
+      args.slug ??= issueSlug(issue);
+    }
     args.slug = slugify(args.slug || args.task);
     const id = args.slug + "-" + stamp();
     const store = await openStore(join(RUNS, id));
-    await store.update((s) => { s.id = id; s.args = args; });
+    // state.issue now, not only when the engine starts, so the pane can link it right away.
+    await store.update((s) => { s.id = id; s.args = args; s.issue = args.issue ?? null; });
     if (usesHerdr(await loadConfig())) return launchEngine(store, args);
     return execute(store, args);
+  },
+
+  // For the start form's preview: the issue a run would get, and its slug.
+  async issue([ref, ...rest]) {
+    if (!ref || ref.startsWith("--") || rest.some((a) => a !== "--json")) throw new Error("usage: whetstone issue <key|url> [--json]");
+    const issue = await createLinearReader().read(ref);
+    if (rest.includes("--json")) {
+      console.log(JSON.stringify({ ...issue, slug: issueSlug(issue) }, null, 2));
+      return 0;
+    }
+    console.log(issue.key + " · " + issue.title);
+    console.log(issue.url);
+    if (issue.description) console.log("\n" + issue.description);
+    return 0;
   },
 
   // Run by launchEngine inside the engine's own Herdr terminal.
@@ -318,7 +349,7 @@ const commands = {
 async function main([command, ...rest]) {
   const handler = commands[command];
   if (!handler) {
-    console.error("usage: whetstone run|list|status|pause|resume|stop|approve|answer|doctor (see engine/cli.mjs)");
+    console.error("usage: whetstone run|issue|list|status|pause|resume|stop|approve|answer|doctor (see engine/cli.mjs)");
     return 2;
   }
   try {

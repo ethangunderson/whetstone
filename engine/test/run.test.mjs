@@ -242,6 +242,14 @@ test("state keeps the args and pid so a crashed run can be resumed", async () =>
   assert.equal(state.pid, process.pid);
 });
 
+test("a run started from a Linear issue records the issue for the pane", async () => {
+  const issue = { key: "WHE-5", title: "Lanes must not start", url: "https://linear.app/eg-whetstone/issue/WHE-5/x" };
+  const { state } = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }], args: { issue } });
+  assert.deepEqual(state.issue, issue);
+  const plain = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }] });
+  assert.equal(plain.state.issue, null);
+});
+
 test("the engine creates the lane and final worktrees itself", async () => {
   const { ws, args } = await simulate({ ...agree, reviews: [{ claude: clean, codex: clean }] });
   const root = join(args.repo, "..", ".whetstone", "peepmetrics-csv-export");
